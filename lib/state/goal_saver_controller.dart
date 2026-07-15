@@ -718,7 +718,8 @@ class GoalSaverController extends ChangeNotifier {
 
   /// Recalculate a single goal's plan (callable on demand).
   ///
-  /// If a periodic boundary has passed since the last log, auto-logs a missed period.
+  /// If periodic boundaries have passed since the last log, auto-logs missed
+  /// periods for each interval that passed unanswered.
   Future<void> recalculatePlan(SavingsGoal goal) async {
     final index = _goals.indexWhere((item) => item.id == goal.id);
     if (index == -1) return;
@@ -726,28 +727,43 @@ class GoalSaverController extends ChangeNotifier {
     final currentGoal = _goals[index];
     if (currentGoal.deleted || currentGoal.archived || currentGoal.completed) return;
     
-    // Check for missed periods: if the last log is older than the frequency interval
+    // Check for missed periods since the last log or goal creation
     final lastLog = _history.where((log) => log.goalId == goal.id).fold<DateTime?>(
       null,
       (latest, log) => latest == null || log.date.isAfter(latest) ? log.date : latest,
     );
     
-    if (lastLog != null) {
-      final daysSinceLastLog = DateTime.now().difference(lastLog).inDays;
-      if (daysSinceLastLog >= currentGoal.frequency.days) {
-        // Auto-log a missed period
+    final referenceDate = lastLog ?? (currentGoal.createdDate ?? DateTime.now().subtract(const Duration(days: 30)));
+    final daysSinceReference = DateTime.now().difference(referenceDate).inDays;
+    final intervalsSinceReference = daysSinceReference ~/ currentGoal.frequency.days;
+    
+    // Log one missed period for each full interval that passed unanswered
+    // (but cap at reasonable max to avoid flood on first load)
+    final maxMissed = 4;
+    final missedCount = intervalsSinceReference.clamp(0, maxMissed);
+    
+    bool missedLogged = false;
+    for (var i = 1; i <= missedCount; i++) {
+      final missedDate = referenceDate.add(Duration(days: currentGoal.frequency.days * i));
+      // Avoid logging a missed period if there's already a log near that date
+      final alreadyLogged = _history.any((log) =>
+        log.goalId == goal.id &&
+        (log.date.difference(missedDate).inDays).abs() <= 1
+      );
+      if (!alreadyLogged) {
         _history.insert(
           0,
           SavingsLog(
-            id: 'missed_${goal.id}_${DateTime.now().microsecondsSinceEpoch}',
+            id: 'missed_${goal.id}_${missedDate.millisecondsSinceEpoch}',
             goalId: goal.id,
             goalTitle: goal.title,
             amount: 0,
-            date: lastLog.add(Duration(days: currentGoal.frequency.days)),
+            date: missedDate,
             entryType: SavingsEntryType.missed,
             notes: 'Missed period — auto-logged',
           ),
         );
+        missedLogged = true;
       }
     }
     

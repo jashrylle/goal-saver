@@ -10,6 +10,7 @@ import '../../widgets/goal_card.dart';
 import '../../widgets/shimmer_goal_list.dart';
 import '../../widgets/sheets/add_goal_sheet.dart';
 import '../../widgets/sheets/goal_details_sheet.dart';
+import '../../widgets/sheets/productivity_sheet.dart';
 import '../profile/profile_screen.dart';
 import 'balance_overview.dart';
 import 'smart_status_grid.dart';

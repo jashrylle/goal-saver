@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import '../models/goal_model.dart';
 import '../models/savings_plan_model.dart' show PlanStatus;
 import 'notification_service.dart';
@@ -77,7 +76,7 @@ class PlanNotificationScheduler {
   }
 
   /// Stable numeric ID for a goal's regular reminder notification.
-  static int _goalId(String goalId) => math.Abs(goalId.hashCode) % 100000;
+  static int _goalId(String goalId) => goalId.hashCode.abs() % 100000;
 
   /// Stable numeric ID for a goal's at-risk alert notification.
   static int _atRiskId(String goalId) => _goalId(goalId) + 500000;
