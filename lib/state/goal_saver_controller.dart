@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/goal_model.dart';
+import '../models/savings_plan_model.dart';
 import '../models/user_model.dart';
 import '../data/goal_saver_store.dart';
 import '../data/seed_data.dart';
+import '../logic/savings_plan_calculator.dart';
 import '../utils/extensions.dart';
 import '../services/notification_service.dart';
 
@@ -47,6 +49,9 @@ class GoalSaverController extends ChangeNotifier {
   String formatMoney(double value) {
     return '$currencySymbol${value.money}';
   }
+
+  /// Access the shared [SavingsPlanCalculator] instance.
+  SavingsPlanCalculator get calc => SavingsPlanCalculator.instance;
 
   // ── Computed getters ──────────────────────────────────────────────────────
 
@@ -145,30 +150,22 @@ class GoalSaverController extends ChangeNotifier {
   }
 
   double get targetInSelectedRange {
-    // Use actual target amounts from goals that are due within the selected range
-    // or prorate based on what should be saved in this period
+    // Use the shared calculation engine for consistent prorating
     double total = 0.0;
+    final rangeDays = switch (range) {
+      AnalyticsRange.daily => 1,
+      AnalyticsRange.weekly => 7,
+      AnalyticsRange.monthly => 30,
+      AnalyticsRange.yearly => 365,
+    };
     for (final goal in allActiveGoals) {
-      final savedSoFar = goal.saved;
-      final remaining = goal.remaining;
-      final daysLeft = goal.daysLeft;
-      
-      // If no days left or completed, include the full remaining target
-      if (daysLeft <= 0 || goal.completed) {
-        total += savedSoFar;
-        continue;
-      }
-      
-      // Prorate based on the selected range vs total time
-      final rangeDays = switch (range) {
-        AnalyticsRange.daily => 1,
-        AnalyticsRange.weekly => 7,
-        AnalyticsRange.monthly => 30,
-        AnalyticsRange.yearly => 365,
-      };
-      
-      final dailyTarget = remaining / daysLeft;
-      total += savedSoFar.clamp(0, goal.target) + (dailyTarget * rangeDays).clamp(0, goal.target - savedSoFar);
+      total += SavingsPlanCalculator.proratedTargetForRange(
+        target: goal.target,
+        saved: goal.saved,
+        daysLeft: goal.daysLeft.toDouble(),
+        frequencyDays: goal.frequency.days,
+        rangeDays: rangeDays,
+      );
     }
     return total == 0 ? totalSaved : total;
   }
@@ -306,7 +303,9 @@ class GoalSaverController extends ChangeNotifier {
     final savedHistory = await _store.loadHistory();
     _goals
       ..clear()
-      ..addAll(savedGoals.isEmpty ? seedGoals : savedGoals);
+      ..addAll((savedGoals.isEmpty ? seedGoals : savedGoals)
+          .map((g) => g.ensurePlan()) // Migration: ensure all goals have a plan
+          .toList());
     _history
       ..clear()
       ..addAll(savedHistory.isEmpty ? seedHistory : savedHistory);
@@ -317,15 +316,12 @@ class GoalSaverController extends ChangeNotifier {
   void _updateNotifications() {
     try {
       if (remindersEnabled) {
-        NotificationService().scheduleDailyReminder(
-          id: 999,
-          title: 'Time to Save!',
-          body: "Don't forget to record your savings and reach your goals today!",
-          hour: reminderHour,
-          minute: reminderMinute,
-        );
+        // Schedule per-goal notifications instead of a single global one
+        for (final goal in allActiveGoals) {
+          _scheduleGoalNotification(goal);
+        }
       } else {
-        NotificationService().cancelNotification(999);
+        NotificationService().cancelAllNotifications();
       }
     } catch (_) {}
   }
@@ -576,24 +572,45 @@ class GoalSaverController extends ChangeNotifier {
 
   // ── Goal CRUD ─────────────────────────────────────────────────────────────
 
-  Future<void> addGoal(SavingsGoal goal) async {
+  /// Add a goal created by the new plan-based wizard.
+  Future<void> createGoalWithPlan(SavingsGoal goal) async {
     _goals.insert(0, goal);
     await _persist();
+    // Schedule per-goal notification for this new goal
+    _scheduleGoalNotification(goal);
+  }
+
+  Future<void> addGoal(SavingsGoal goal) async {
+    _goals.insert(0, goal.ensurePlan());
+    await _persist();
+    _scheduleGoalNotification(goal.ensurePlan());
   }
 
   Future<void> updateGoal(SavingsGoal goal) async {
-    _replace(goal);
+    final updated = goal.ensurePlan();
+    _replace(updated);
     await _persist();
+    _scheduleGoalNotification(updated);
   }
 
+  /// Add savings to a goal, then recalculate its plan and reschedule notifications.
   Future<void> addSavings(SavingsGoal goal, double amount) async {
     final index = _goals.indexWhere((item) => item.id == goal.id);
     if (index == -1) return;
+    
+    final newSaved = (goal.saved + amount).clamp(0.0, goal.target);
+    final completed = newSaved >= goal.target;
+    
+    // Recalculate the plan with the new saved amount
+    final updatedPlan = goal.plan?.recalculate(newSaved);
+    
     _goals[index] = goal.copyWith(
-      saved: (goal.saved + amount).clamp(0, goal.target),
+      saved: newSaved,
       paused: false,
-      completed: goal.saved + amount >= goal.target,
+      completed: completed,
+      plan: updatedPlan,
     );
+    
     _history.insert(
       0,
       SavingsLog(
@@ -604,7 +621,66 @@ class GoalSaverController extends ChangeNotifier {
         date: DateTime.now(),
       ),
     );
+    
     await _persist();
+    
+    // Reschedule notifications after recalculation
+    if (completed) {
+      NotificationService().cancelNotification(goal.id.hashCode % 100000);
+    } else {
+      _scheduleGoalNotification(_goals[index]);
+    }
+  }
+
+  /// Recalculate plans for all active goals (e.g., on app resume, daily tick).
+  Future<void> recalculatePlans() async {
+    bool changed = false;
+    for (var i = 0; i < _goals.length; i++) {
+      if (_goals[i].deleted || _goals[i].archived) continue;
+      final recalculated = _goals[i].plan?.recalculate(_goals[i].saved);
+      if (recalculated != null && recalculated.currentIntervalAmount != _goals[i].plan?.currentIntervalAmount) {
+        _goals[i] = _goals[i].copyWith(plan: recalculated);
+        changed = true;
+      }
+    }
+    if (changed) {
+      await _persist();
+    }
+  }
+
+  /// Recalculate a single goal's plan (callable on demand).
+  Future<void> recalculatePlan(SavingsGoal goal) async {
+    final index = _goals.indexWhere((item) => item.id == goal.id);
+    if (index == -1) return;
+    final updatedPlan = goal.plan?.recalculate(goal.saved);
+    if (updatedPlan != null) {
+      _goals[index] = goal.copyWith(plan: updatedPlan);
+      await _persist();
+    }
+  }
+
+  /// Extract the goal from the private list to get the latest version.
+  SavingsGoal? latestGoal(String goalId) {
+    final index = _goals.indexWhere((g) => g.id == goalId);
+    return index != -1 ? _goals[index] : null;
+  }
+
+  /// Per-goal notification scheduling helper.
+  void _scheduleGoalNotification(SavingsGoal goal) {
+    if (!remindersEnabled || goal.paused || goal.completed || goal.deleted || goal.archived) return;
+    try {
+      final intervalAmount = goal.recommendedDeposit;
+      if (intervalAmount <= 0) return;
+      NotificationService().scheduleDailyReminder(
+        id: goal.id.hashCode % 100000,
+        title: 'Save for ${goal.title}!',
+        body: intervalAmount > 0
+            ? 'Save ${formatMoney(intervalAmount)} this ${goal.frequency.label.toLowerCase()} to stay on track for ${goal.title}'
+            : "Don't forget to save for ${goal.title}!",
+        hour: reminderHour,
+        minute: reminderMinute,
+      );
+    } catch (_) {}
   }
 
   Future<void> deleteSavingsLog(SavingsLog log) async {
@@ -612,9 +688,11 @@ class GoalSaverController extends ChangeNotifier {
     if (goalIndex != -1) {
       final goal = _goals[goalIndex];
       final newSaved = (goal.saved - log.amount).clamp(0.0, goal.target);
+      final recalculatedPlan = goal.plan?.recalculate(newSaved);
       _goals[goalIndex] = goal.copyWith(
         saved: newSaved,
         completed: newSaved >= goal.target,
+        plan: recalculatedPlan,
       );
     }
     _history.removeWhere((item) => item.id == log.id);
@@ -627,9 +705,11 @@ class GoalSaverController extends ChangeNotifier {
       final goal = _goals[goalIndex];
       final diff = newAmount - log.amount;
       final newSaved = (goal.saved + diff).clamp(0.0, goal.target);
+      final recalculatedPlan = goal.plan?.recalculate(newSaved);
       _goals[goalIndex] = goal.copyWith(
         saved: newSaved,
         completed: newSaved >= goal.target,
+        plan: recalculatedPlan,
       );
     }
     final historyIndex = _history.indexWhere((item) => item.id == log.id);
@@ -644,16 +724,31 @@ class GoalSaverController extends ChangeNotifier {
   Future<void> togglePaused(SavingsGoal goal) async {
     _replace(goal.copyWith(paused: !goal.paused));
     await _persist();
+    if (!goal.paused) {
+      // Resuming - schedule notifications
+      _scheduleGoalNotification(goal);
+    } else {
+      // Pausing - cancel notifications
+      try {
+        await NotificationService().cancelNotification(goal.id.hashCode % 100000);
+      } catch (_) {}
+    }
   }
 
   Future<void> markCompleted(SavingsGoal goal) async {
+    final completedPlan = goal.plan?.copyWith(status: PlanStatus.completed);
     _replace(
       goal.copyWith(
         completed: true,
         paused: false,
+        plan: completedPlan,
       ),
     );
     await _persist();
+    // Cancel notifications for completed goal
+    try {
+      await NotificationService().cancelNotification(goal.id.hashCode % 100000);
+    } catch (_) {}
   }
 
   Future<void> deleteGoal(SavingsGoal goal) async {
@@ -682,7 +777,8 @@ class GoalSaverController extends ChangeNotifier {
   }
 
   Future<void> undoCompletion(SavingsGoal goal) async {
-    _replace(goal.copyWith(completed: false));
+    final revertedPlan = goal.plan?.recalculate(goal.saved).copyWith(status: PlanStatus.onTrack);
+    _replace(goal.copyWith(completed: false, plan: revertedPlan));
     await _persist();
   }
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../controllers/goal_controller.dart';
+
 import '../../state/goal_saver_controller.dart';
 import '../../models/goal_model.dart';
 import '../../utils/app_colors.dart';
@@ -105,7 +105,7 @@ class _ProductivitySheetState extends State<ProductivitySheet> {
             ? goals.first
             : null;
     final suggested = currentGoal != null
-        ? GoalController.getSuggestedDeposit(currentGoal)
+        ? currentGoal.recommendedDeposit
         : 0.0;
 
     // Top 3 recommended goals (sorted by urgency: least days left first, among incomplete)

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import 'savings_plan_model.dart';
+import '../logic/savings_plan_calculator.dart';
 
 /// Represents a single savings goal with comprehensive tracking
 /// Focused on tracking savings for a specific product/object to purchase
@@ -25,6 +27,7 @@ class SavingsGoal {
     this.completed = false,
     this.archived = false,
     this.deleted = false,
+    this.plan,
   });
 
   final String id;
@@ -48,22 +51,25 @@ class SavingsGoal {
   final bool archived;
   final bool deleted;
 
-  /// Calculated progress (0-1)
-  double get progress => target == 0 ? 0 : (saved / target).clamp(0, 1);
+  /// The explicit savings plan for this goal (null before migration).
+  final SavingsPlan? plan;
 
-  /// Days remaining until due date
+  /// Calculated progress (0-1) — thin wrapper around calculator.
+  double get progress => SavingsPlanCalculator.calculateProgress(saved, target);
+
+  /// Days remaining until due date.
   int get daysLeft {
     if (dueDate == null) return 90;
     final diff = dueDate!.difference(DateTime.now()).inDays;
     return math.max(0, diff);
   }
 
-  /// Recommended deposit amount to reach target on time
+  /// Recommended deposit amount — reads from plan if available, else computes.
   double get recommendedDeposit {
+    if (plan != null) return plan!.currentIntervalAmount;
     if (completed || daysLeft <= 0) return 0;
     final remaining = (target - saved).clamp(0, target);
-    final depositsNeeded =
-        math.max(1, daysLeft / frequency.days);
+    final depositsNeeded = math.max(1, daysLeft / frequency.days);
     return (remaining / depositsNeeded).ceilToDouble();
   }
 
@@ -81,42 +87,50 @@ class SavingsGoal {
   /// Percentage complete as formatted string
   String get progressPercent => '${(progress * 100).round()}%';
 
-  /// Remaining amount to save
-  double get remaining => (target - saved).clamp(0, target);
+  /// Remaining amount to save — uses calculator.
+  double get remaining => SavingsPlanCalculator.calculateRemaining(saved, target);
 
-  /// Money needed to reach target
+  /// Money needed (alias for remaining).
   double get moneyNeeded => remaining;
 
-  /// Savings per day needed to reach target by due date
-  double get savingsPerDay {
-    if (completed || daysLeft <= 0) return 0;
-    if (remaining <= 0) return 0;
-    return (remaining / math.max(1, daysLeft)).ceilToDouble();
-  }
+  /// Savings per day — uses calculator.
+  double get savingsPerDay =>
+      SavingsPlanCalculator.savingsPerDay(remaining, daysLeft);
 
-  /// Savings per week needed to reach target by due date
-  double get savingsPerWeek {
-    if (completed || daysLeft <= 0) return 0;
-    if (remaining <= 0) return 0;
-    final weeksLeft = daysLeft / 7;
-    return (remaining / math.max(1, weeksLeft)).ceilToDouble();
-  }
+  /// Savings per week — uses calculator.
+  double get savingsPerWeek =>
+      SavingsPlanCalculator.savingsPerWeek(remaining, daysLeft);
 
-  /// Savings per month needed to reach target by due date
-  double get savingsPerMonth {
-    if (completed || daysLeft <= 0) return 0;
-    if (remaining <= 0) return 0;
-    final monthsLeft = daysLeft / 30;
-    return (remaining / math.max(1, monthsLeft)).ceilToDouble();
-  }
+  /// Savings per month — uses calculator.
+  double get savingsPerMonth =>
+      SavingsPlanCalculator.savingsPerMonth(remaining, daysLeft);
 
   /// Whether the goal is past its deadline and still incomplete.
   bool get isOverdue =>
       dueDate != null && !completed && DateTime.now().isAfter(dueDate!);
 
-  /// Estimated completion date based on the current contribution pace.
+  /// Plan status from the plan, or computed on the fly.
+  PlanStatus get planStatus {
+    if (plan != null) return plan!.status;
+    return SavingsPlanCalculator.determineStatus(
+      saved: saved,
+      target: target,
+      daysLeft: daysLeft,
+      frequencyDays: frequency.days,
+    );
+  }
+
+  /// Estimated completion date — uses plan's calculation if available.
   DateTime? get estimatedCompletionDate {
     if (completed || remaining <= 0) return completedDate ?? dueDate;
+    if (plan != null) {
+      // From plan pacing: remaining / currentIntervalAmount * frequency
+      final deposit = plan!.currentIntervalAmount;
+      if (deposit <= 0) return null;
+      final depositsNeeded = (remaining / deposit).ceil();
+      final daysNeeded = depositsNeeded * frequency.days;
+      return DateTime.now().add(Duration(days: daysNeeded));
+    }
     final deposit = recommendedDeposit;
     if (deposit <= 0) return null;
     final depositsNeeded = (remaining / deposit).ceil();
@@ -124,19 +138,9 @@ class SavingsGoal {
     return DateTime.now().add(Duration(days: daysNeeded));
   }
 
-  /// Human-readable estimate for when the goal will finish.
-  String get estimatedCompletionLabel {
-    final estimate = estimatedCompletionDate;
-    if (estimate == null) return 'Not enough data yet';
-
-    final days = estimate.difference(DateTime.now()).inDays;
-    if (days <= 0) return 'Any day now';
-    if (days == 1) return 'Tomorrow';
-    if (days < 7) return '$days days';
-    if (days < 30) return '${(days / 7).ceil()} weeks';
-    if (days < 365) return '${(days / 30).ceil()} months';
-    return '${(days / 365).ceil()} years';
-  }
+  /// Human-readable estimate — uses calculator.
+  String get estimatedCompletionLabel =>
+      SavingsPlanCalculator.estimateCompletionLabel(estimatedCompletionDate);
 
   /// Status as readable string
   String get statusLabel {
@@ -171,6 +175,8 @@ class SavingsGoal {
     bool? completed,
     bool? archived,
     bool? deleted,
+    SavingsPlan? plan,
+    bool clearPlan = false,
   }) {
     return SavingsGoal(
       id: id,
@@ -197,6 +203,7 @@ class SavingsGoal {
       completed: completed ?? this.completed,
       archived: archived ?? this.archived,
       deleted: deleted ?? this.deleted,
+      plan: clearPlan ? null : plan ?? this.plan,
     );
   }
 
@@ -221,6 +228,7 @@ class SavingsGoal {
       'dueDate': dueDate?.toIso8601String(),
       'createdDate': createdDate?.toIso8601String(),
       'completedDate': completedDate?.toIso8601String(),
+      'plan': plan?.toMap(),
       'paused': paused,
       'completed': completed,
       'archived': archived,
@@ -231,6 +239,7 @@ class SavingsGoal {
   /// Create from JSON map
   factory SavingsGoal.fromMap(Map<String, dynamic> map) {
     final rawCategory = map['category'];
+    final rawPlan = map['plan'];
     return SavingsGoal(
       id: map['id'] as String,
       title: map['title'] as String,
@@ -270,6 +279,66 @@ class SavingsGoal {
       completed: (map['completed'] as bool?) ?? false,
       archived: (map['archived'] as bool?) ?? false,
       deleted: (map['deleted'] as bool?) ?? false,
+      plan: rawPlan != null
+          ? SavingsPlan.fromMap(Map<String, dynamic>.from(rawPlan))
+          : null,
+    );
+  }
+
+  /// Ensure this goal has a [SavingsPlan]. If [plan] is null, synthesize one
+  /// from existing fields (for backward compatibility with data saved before
+  /// the plan system was introduced).
+  SavingsGoal ensurePlan() {
+    if (plan != null) return this;
+    final effectiveDueDate = dueDate ?? DateTime.now().add(const Duration(days: 90));
+    final effectiveCreatedDate = createdDate ?? DateTime.now().subtract(const Duration(days: 30));
+    final synthesized = SavingsPlan.create(
+      startDate: effectiveCreatedDate,
+      targetDate: effectiveDueDate,
+      frequency: frequency,
+      targetAmount: target,
+    );
+    return copyWith(plan: synthesized.recalculate(saved));
+  }
+
+  /// Create a goal with a fresh savings plan (used by the new wizard).
+  factory SavingsGoal.withPlan({
+    required String id,
+    required String title,
+    required double target,
+    required IconData icon,
+    required Color color,
+    required GoalCategory category,
+    required SavingFrequency frequency,
+    required DateTime dueDate,
+    int priority = 5,
+    String productName = '',
+    String productDescription = '',
+    bool notificationsEnabled = false,
+  }) {
+    final now = DateTime.now();
+    final plan = SavingsPlan.create(
+      startDate: now,
+      targetDate: dueDate,
+      frequency: frequency,
+      targetAmount: target,
+    );
+    return SavingsGoal(
+      id: id,
+      title: title,
+      saved: 0,
+      target: target,
+      icon: icon,
+      color: color,
+      category: category,
+      frequency: frequency,
+      priority: priority,
+      productName: productName,
+      productDescription: productDescription,
+      notificationsEnabled: notificationsEnabled,
+      dueDate: dueDate,
+      createdDate: now,
+      plan: plan,
     );
   }
 
@@ -581,6 +650,7 @@ enum SavingFrequency {
   const SavingFrequency(this.label, this.days);
 
   String get pluralLabel => days == 1 ? 'day' : 'days';
+  String get intervalLabel => days == 1 ? 'day' : '${days} days';
 }
 
 /// Sorting options for goals

@@ -53,7 +53,7 @@ class DashboardHeader extends StatelessWidget {
 }
 
 /// Main input decoration style for goal forms — adapts to dark/light theme.
-InputDecoration goalInputDecoration(String label, IconData icon, {BuildContext? context}) {
+InputDecoration goalInputDecoration(String label, IconData icon, {BuildContext? context, Widget? prefix}) {
   final isDark = context != null
       ? Theme.of(context).brightness == Brightness.dark
       : true;
@@ -67,7 +67,7 @@ InputDecoration goalInputDecoration(String label, IconData icon, {BuildContext? 
   return InputDecoration(
     labelText: label,
     labelStyle: TextStyle(color: isDark ? AppColors.muted : AppColors.lightMuted),
-    prefixIcon: Icon(icon, color: isDark ? AppColors.muted : AppColors.lightMuted),
+    prefixIcon: prefix ?? Icon(icon, color: isDark ? AppColors.muted : AppColors.lightMuted),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(16),
       borderSide: BorderSide(color: borderColor, width: 0.5),
