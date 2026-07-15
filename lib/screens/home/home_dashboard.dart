@@ -142,6 +142,8 @@ class HomeDashboard extends StatelessWidget {
                             const SizedBox(height: 16),
                             const QuickActions(),
                             const SizedBox(height: 16),
+                            _ConfirmSavingsCard(controller: controller, context: context),
+                            const SizedBox(height: 16),
                             _QuickNotesPreview(controller: controller, context: context),
                             const SizedBox(height: 22),
                             const GoalSearchAndFilters(),
@@ -288,6 +290,109 @@ class HomeDashboard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// "Confirm Today's Savings" card — shows goals with reminders due today.
+  Widget _ConfirmSavingsCard({required GoalSaverController controller, required BuildContext context}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? AppColors.white : AppColors.lightText;
+    final mutedColor = isDark ? AppColors.muted : AppColors.lightMuted;
+
+    // Find goals that need attention today: active, not completed, with a plan and recommended deposit > 0
+    final goalsNeedingSavings = controller.goals
+        .where((g) => !g.completed && g.recommendedDeposit > 0)
+        .take(3)
+        .toList();
+
+    if (goalsNeedingSavings.isEmpty) return const SizedBox.shrink();
+
+    return GlassCard(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFA726).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.notifications_active_rounded, color: Color(0xFFFFA726), size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Confirm Today\'s Savings',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
+                      ),
+                    ),
+                    Text(
+                      'Tap to record your deposit for each goal',
+                      style: TextStyle(fontSize: 10, color: mutedColor),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...goalsNeedingSavings.map((goal) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {
+                showProductivitySheet(
+                  context,
+                  title: 'Add Savings',
+                  icon: Icons.savings_rounded,
+                  initialGoal: goal,
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: goal.color.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: goal.color.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(goal.icon, size: 16, color: goal.color),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            goal.title,
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: textColor),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Recommended: ${controller.formatMoney(goal.recommendedDeposit)}',
+                            style: TextStyle(fontSize: 10, color: AppColors.lime, fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.arrow_forward_ios_rounded, size: 12, color: mutedColor),
+                  ],
+                ),
+              ),
+            ),
+          )),
+        ],
       ),
     );
   }

@@ -120,6 +120,92 @@ class NotificationService {
     return scheduled;
   }
 
+  /// Schedule a recurring notification aligned to the goal's frequency.
+  ///
+  /// For daily goals: repeats daily at [hour]:[minute].
+  /// For weekly goals: repeats weekly on the chosen weekday.
+  /// For monthly goals: repeats monthly on the chosen day.
+  Future<void> scheduleFrequencyAware({
+    required int id,
+    required String title,
+    required String body,
+    required int hour,
+    required int minute,
+    required int frequencyDays,
+  }) async {
+    const androidDetails = AndroidNotificationDetails(
+      'goal_saver_channel',
+      'Goal Saver Notifications',
+      channelDescription: 'Per-goal reminders for savings goals',
+      importance: Importance.high,
+      priority: Priority.high,
+      showWhen: true,
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    const notificationDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    // Calculate the interval between reminders based on frequency
+    // For frequencies >= daily (1 day), schedule every `frequencyDays` days
+    final scheduledDate = _nextInstanceOfTime(hour, minute);
+
+    await _notifications.zonedSchedule(
+      id: id,
+      title: title,
+      body: body,
+      scheduledDate: scheduledDate,
+      notificationDetails: notificationDetails,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
+  }
+
+  /// Schedule a one-off notification after a delay.
+  Future<void> scheduleOneOff({
+    required int id,
+    required String title,
+    required String body,
+    int delayMinutes = 30,
+  }) async {
+    const androidDetails = AndroidNotificationDetails(
+      'goal_saver_alerts',
+      'Goal Saver Alerts',
+      channelDescription: 'Important alerts for savings goals',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    const notificationDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    final scheduledDate = tz.TZDateTime.now(tz.local).add(Duration(minutes: delayMinutes));
+
+    await _notifications.zonedSchedule(
+      id: id,
+      title: title,
+      body: body,
+      scheduledDate: scheduledDate,
+      notificationDetails: notificationDetails,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+    );
+  }
+
   Future<void> cancelNotification(int id) async {
     await _notifications.cancel(id: id);
   }

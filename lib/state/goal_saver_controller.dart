@@ -10,6 +10,7 @@ import '../data/seed_data.dart';
 import '../logic/savings_plan_calculator.dart';
 import '../utils/extensions.dart';
 import '../services/notification_service.dart';
+import '../services/plan_notification_scheduler.dart';
 
 /// Central state controller for Goal Saver, backed by a [GoalSaverStore].
 class GoalSaverController extends ChangeNotifier {
@@ -594,7 +595,18 @@ class GoalSaverController extends ChangeNotifier {
   }
 
   /// Add savings to a goal, then recalculate its plan and reschedule notifications.
-  Future<void> addSavings(SavingsGoal goal, double amount) async {
+  ///
+  /// [entryType] distinguishes how the savings was recorded:
+  /// - [SavingsEntryType.manual]: User entered via the form.
+  /// - [SavingsEntryType.suggested]: User tapped the suggested amount chip.
+  /// - [SavingsEntryType.confirmed]: User confirmed the planned amount from a notification.
+  /// - [SavingsEntryType.actual]: User entered a different amount responding to a reminder.
+  /// - [SavingsEntryType.missed]: Auto-logged as $0 when a reminder interval passed unanswered.
+  Future<void> addSavings(
+    SavingsGoal goal,
+    double amount, {
+    SavingsEntryType entryType = SavingsEntryType.manual,
+  }) async {
     final index = _goals.indexWhere((item) => item.id == goal.id);
     if (index == -1) return;
     
@@ -602,14 +614,51 @@ class GoalSaverController extends ChangeNotifier {
     final completed = newSaved >= goal.target;
     
     // Recalculate the plan with the new saved amount
-    final updatedPlan = goal.plan?.recalculate(newSaved);
+    final oldPlan = goal.plan;
+    final updatedPlan = oldPlan?.recalculate(newSaved);
     
-    _goals[index] = goal.copyWith(
-      saved: newSaved,
-      paused: false,
-      completed: completed,
-      plan: updatedPlan,
-    );
+    // Log an adjustment if the interval amount changed significantly
+    if (oldPlan != null && updatedPlan != null) {
+      final oldInterval = oldPlan.currentIntervalAmount;
+      final newInterval = updatedPlan.currentIntervalAmount;
+      if ((oldInterval - newInterval).abs() >= 1.0) {
+        final adjustment = PlanAdjustment(
+          date: DateTime.now(),
+          reason: entryType == SavingsEntryType.missed
+              ? 'Missed period — interval amount adjusted'
+              : amount >= oldInterval
+                  ? 'On-track deposit — interval amount updated'
+                  : 'Under-saved — interval amount increased',
+          oldIntervalAmount: oldInterval,
+          newIntervalAmount: newInterval,
+          intervalsRemaining: SavingsPlanCalculator.calculateIntervalsLeft(
+            goal.daysLeft,
+            goal.frequency.days,
+          ),
+          remainingAmount: (goal.target - newSaved).clamp(0, goal.target),
+        );
+        _goals[index] = goal.copyWith(
+          saved: newSaved,
+          paused: false,
+          completed: completed,
+          plan: updatedPlan.withAdjustment(adjustment),
+        );
+      } else {
+        _goals[index] = goal.copyWith(
+          saved: newSaved,
+          paused: false,
+          completed: completed,
+          plan: updatedPlan,
+        );
+      }
+    } else {
+      _goals[index] = goal.copyWith(
+        saved: newSaved,
+        paused: false,
+        completed: completed,
+        plan: updatedPlan,
+      );
+    }
     
     _history.insert(
       0,
@@ -619,6 +668,7 @@ class GoalSaverController extends ChangeNotifier {
         goalTitle: goal.title,
         amount: amount,
         date: DateTime.now(),
+        entryType: entryType,
       ),
     );
     
@@ -626,9 +676,25 @@ class GoalSaverController extends ChangeNotifier {
     
     // Reschedule notifications after recalculation
     if (completed) {
-      NotificationService().cancelNotification(goal.id.hashCode % 100000);
+      PlanNotificationScheduler().cancelGoal(goal.id);
     } else {
-      _scheduleGoalNotification(_goals[index]);
+      final updatedGoal = _goals[index];
+      PlanNotificationScheduler().scheduleGoal(
+        goal: updatedGoal,
+        remindersEnabled: remindersEnabled,
+        reminderHour: reminderHour,
+        reminderMinute: reminderMinute,
+        formatMoney: formatMoney,
+      );
+      
+      // Check for at-risk status and alert
+      if (updatedGoal.planStatus == PlanStatus.atRisk) {
+        PlanNotificationScheduler().scheduleAtRiskAlert(
+          goal: updatedGoal,
+          remindersEnabled: remindersEnabled,
+          formatMoney: formatMoney,
+        );
+      }
     }
   }
 
@@ -646,15 +712,48 @@ class GoalSaverController extends ChangeNotifier {
     if (changed) {
       await _persist();
     }
+    // Reschedule notifications for all active goals
+    _updateNotifications();
   }
 
   /// Recalculate a single goal's plan (callable on demand).
+  ///
+  /// If a periodic boundary has passed since the last log, auto-logs a missed period.
   Future<void> recalculatePlan(SavingsGoal goal) async {
     final index = _goals.indexWhere((item) => item.id == goal.id);
     if (index == -1) return;
-    final updatedPlan = goal.plan?.recalculate(goal.saved);
+    
+    final currentGoal = _goals[index];
+    if (currentGoal.deleted || currentGoal.archived || currentGoal.completed) return;
+    
+    // Check for missed periods: if the last log is older than the frequency interval
+    final lastLog = _history.where((log) => log.goalId == goal.id).fold<DateTime?>(
+      null,
+      (latest, log) => latest == null || log.date.isAfter(latest) ? log.date : latest,
+    );
+    
+    if (lastLog != null) {
+      final daysSinceLastLog = DateTime.now().difference(lastLog).inDays;
+      if (daysSinceLastLog >= currentGoal.frequency.days) {
+        // Auto-log a missed period
+        _history.insert(
+          0,
+          SavingsLog(
+            id: 'missed_${goal.id}_${DateTime.now().microsecondsSinceEpoch}',
+            goalId: goal.id,
+            goalTitle: goal.title,
+            amount: 0,
+            date: lastLog.add(Duration(days: currentGoal.frequency.days)),
+            entryType: SavingsEntryType.missed,
+            notes: 'Missed period — auto-logged',
+          ),
+        );
+      }
+    }
+    
+    final updatedPlan = currentGoal.plan?.recalculate(currentGoal.saved);
     if (updatedPlan != null) {
-      _goals[index] = goal.copyWith(plan: updatedPlan);
+      _goals[index] = currentGoal.copyWith(plan: updatedPlan);
       await _persist();
     }
   }
@@ -665,22 +764,15 @@ class GoalSaverController extends ChangeNotifier {
     return index != -1 ? _goals[index] : null;
   }
 
-  /// Per-goal notification scheduling helper.
+  /// Per-goal notification scheduling via the new [PlanNotificationScheduler].
   void _scheduleGoalNotification(SavingsGoal goal) {
-    if (!remindersEnabled || goal.paused || goal.completed || goal.deleted || goal.archived) return;
-    try {
-      final intervalAmount = goal.recommendedDeposit;
-      if (intervalAmount <= 0) return;
-      NotificationService().scheduleDailyReminder(
-        id: goal.id.hashCode % 100000,
-        title: 'Save for ${goal.title}!',
-        body: intervalAmount > 0
-            ? 'Save ${formatMoney(intervalAmount)} this ${goal.frequency.label.toLowerCase()} to stay on track for ${goal.title}'
-            : "Don't forget to save for ${goal.title}!",
-        hour: reminderHour,
-        minute: reminderMinute,
-      );
-    } catch (_) {}
+    PlanNotificationScheduler().scheduleGoal(
+      goal: goal,
+      remindersEnabled: remindersEnabled,
+      reminderHour: reminderHour,
+      reminderMinute: reminderMinute,
+      formatMoney: formatMoney,
+    );
   }
 
   Future<void> deleteSavingsLog(SavingsLog log) async {
@@ -722,16 +814,13 @@ class GoalSaverController extends ChangeNotifier {
   }
 
   Future<void> togglePaused(SavingsGoal goal) async {
-    _replace(goal.copyWith(paused: !goal.paused));
+    final updated = goal.copyWith(paused: !goal.paused);
+    _replace(updated);
     await _persist();
     if (!goal.paused) {
-      // Resuming - schedule notifications
-      _scheduleGoalNotification(goal);
+      _scheduleGoalNotification(updated);
     } else {
-      // Pausing - cancel notifications
-      try {
-        await NotificationService().cancelNotification(goal.id.hashCode % 100000);
-      } catch (_) {}
+      PlanNotificationScheduler().cancelGoal(goal.id);
     }
   }
 
@@ -745,10 +834,7 @@ class GoalSaverController extends ChangeNotifier {
       ),
     );
     await _persist();
-    // Cancel notifications for completed goal
-    try {
-      await NotificationService().cancelNotification(goal.id.hashCode % 100000);
-    } catch (_) {}
+    PlanNotificationScheduler().cancelGoal(goal.id);
   }
 
   Future<void> deleteGoal(SavingsGoal goal) async {

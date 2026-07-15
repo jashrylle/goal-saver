@@ -56,6 +56,10 @@ class _ProductivitySheetState extends State<ProductivitySheet> {
   void initState() {
     super.initState();
     _selectedGoal = widget.initialGoal;
+    // Pre-fill with recommended deposit if initial goal is provided
+    if (widget.initialGoal != null && widget.initialGoal!.recommendedDeposit > 0) {
+      _amountController.text = widget.initialGoal!.recommendedDeposit.toStringAsFixed(0);
+    }
   }
 
   @override
@@ -68,6 +72,13 @@ class _ProductivitySheetState extends State<ProductivitySheet> {
     setState(() {
       _amountController.text = val.toStringAsFixed(0);
     });
+  }
+
+  /// Pre-fill the amount field with the recommended deposit for the selected goal.
+  void _prefillRecommended(SavingsGoal goal) {
+    if (goal.recommendedDeposit > 0) {
+      _setAmount(goal.recommendedDeposit);
+    }
   }
 
   /// Opens AddGoalSheet to create a product, then waits for it to close
@@ -356,7 +367,10 @@ class _ProductivitySheetState extends State<ProductivitySheet> {
                       ),
                     );
                   }).toList(),
-                  onChanged: (v) => setState(() => _selectedGoal = v),
+                  onChanged: (v) {
+                    setState(() => _selectedGoal = v);
+                    if (v != null) _prefillRecommended(v);
+                  },
                 ),
                 const SizedBox(height: 12),
 

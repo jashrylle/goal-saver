@@ -106,6 +106,41 @@ class AnimatedGoalCard extends StatelessWidget {
                   ),
                 ],
               ),
+              // Recommended this period chip + plan-adjusted badge
+              if (!goal.completed && goal.recommendedDeposit > 0) ...[                
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Icon(Icons.savings_rounded, size: 11, color: AppColors.lime),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Recommended ${goal.frequency.label.toLowerCase()}: ${controller.showBalance ? controller.formatMoney(goal.recommendedDeposit) : "•••"}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.lime,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (goal.plan != null && goal.plan!.currentIntervalAmount != goal.plan!.baseIntervalAmount)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFA726).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'Plan adjusted',
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: const Color(0xFFFFA726),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 12),
               LinearProgressIndicator(
                 minHeight: 6,

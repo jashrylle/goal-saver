@@ -427,11 +427,21 @@ class SavingsLog {
   }
 }
 
-/// Type of savings entry (manual vs suggested)
+/// Type of savings entry.
+///
+/// - [manual]: User manually entered an amount via the form.
+/// - [suggested]: User tapped the suggested/recommended amount.
+/// - [auto]: System-logged entry (e.g., auto-deposit).
+/// - [confirmed]: User confirmed the planned amount from a notification.
+/// - [actual]: User entered a different amount when responding to a reminder.
+/// - [missed]: Auto-logged as $0 when a reminder interval passed unanswered.
 enum SavingsEntryType {
   manual('Manual Entry'),
   suggested('Suggested Deposit'),
-  auto('Automatic');
+  auto('Automatic'),
+  confirmed('Confirmed'),
+  actual('Actual Entry'),
+  missed('Missed');
 
   final String label;
 
