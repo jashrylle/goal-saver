@@ -15,11 +15,19 @@ class GoalSaverNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final navBg = isDark
+        ? const Color(0xFF0D1D19).withValues(alpha: 0.95)
+        : const Color(0xFFF5FAF1).withValues(alpha: 0.95);
+    final navBorder = isDark
+        ? const Color(0xFFFFFFFF).withValues(alpha: 0.08)
+        : const Color(0xFF000000).withValues(alpha: 0.06);
+
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF0D1D19).withValues(alpha: 0.95),
+        color: navBg,
         border: Border(
-          top: BorderSide(color: const Color(0xFFFFFFFF).withValues(alpha: 0.08)),
+          top: BorderSide(color: navBorder),
         ),
       ),
       child: SafeArea(

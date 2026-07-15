@@ -18,15 +18,27 @@ class DashboardHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       children: [
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(eyebrow, style: AppText.caption),
+              Text(
+                eyebrow,
+                style: AppText.caption.copyWith(
+                  color: isDark ? AppColors.muted : AppColors.lightMuted,
+                ),
+              ),
               const SizedBox(height: 4),
-              Text(title, style: AppText.titleLarge, overflow: TextOverflow.ellipsis),
+              Text(
+                title,
+                style: AppText.titleLarge.copyWith(
+                  color: isDark ? AppColors.white : AppColors.lightText,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
             ],
           ),
         ),
@@ -40,35 +52,47 @@ class DashboardHeader extends StatelessWidget {
   }
 }
 
-/// Main input decoration style for goal forms
-InputDecoration goalInputDecoration(String label, IconData icon) {
+/// Main input decoration style for goal forms — adapts to dark/light theme.
+InputDecoration goalInputDecoration(String label, IconData icon, {BuildContext? context}) {
+  final isDark = context != null
+      ? Theme.of(context).brightness == Brightness.dark
+      : true;
+  final borderColor = isDark
+      ? const Color(0xFFFFFFFF).withValues(alpha: 0.1)
+      : const Color(0xFF000000).withValues(alpha: 0.12);
+  final fillColor = isDark
+      ? const Color(0xFFFFFFFF).withValues(alpha: 0.05)
+      : const Color(0xFF000000).withValues(alpha: 0.03);
+
   return InputDecoration(
     labelText: label,
-    prefixIcon: Icon(icon),
+    labelStyle: TextStyle(color: isDark ? AppColors.muted : AppColors.lightMuted),
+    prefixIcon: Icon(icon, color: isDark ? AppColors.muted : AppColors.lightMuted),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(16),
-      borderSide: const BorderSide(
-        color: Color(0xFFFFFFFF),
-        width: 0.5,
-      ),
+      borderSide: BorderSide(color: borderColor, width: 0.5),
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(16),
-      borderSide: BorderSide(
-        color: const Color(0xFFFFFFFF).withValues(alpha: 0.1),
-        width: 0.5,
-      ),
+      borderSide: BorderSide(color: borderColor, width: 0.5),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(16),
-      borderSide: const BorderSide(
-        color: Color(0xFF5FDE9E),
-        width: 1.5,
-      ),
+      borderSide: const BorderSide(color: AppColors.lime, width: 1.5),
+    ),
+    errorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: const BorderSide(color: AppColors.error, width: 1),
+    ),
+    focusedErrorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(16),
+      borderSide: const BorderSide(color: AppColors.error, width: 1.5),
     ),
     filled: true,
-    fillColor: const Color(0xFFFFFFFF).withValues(alpha: 0.05),
+    fillColor: fillColor,
     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    // Ensure dropdown arrow is visible in both modes
+    iconColor: isDark ? AppColors.muted : AppColors.lightMuted,
   );
 }
 
@@ -128,7 +152,7 @@ class _PressableState extends State<Pressable>
   }
 }
 
-/// Glassmorphism card widget
+/// Glassmorphism card widget — adapts to dark/light theme
 class GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
@@ -164,12 +188,13 @@ class GlassCard extends StatelessWidget {
           color: backgroundColor ??
               (isDark
                   ? const Color(0xFFFFFFFF).withValues(alpha: 0.055)
-                  : const Color(0xFF000000).withValues(alpha: 0.02)),
+                  : const Color(0xFFFFFFFF).withValues(alpha: 0.75)),
           borderRadius: BorderRadius.circular(24),
           border: border ??
               Border.all(
-                color: const Color(0xFFFFFFFF)
-                    .withValues(alpha: isDark ? 0.08 : 0.1),
+                color: isDark
+                    ? const Color(0xFFFFFFFF).withValues(alpha: 0.08)
+                    : const Color(0xFF000000).withValues(alpha: 0.06),
                 width: 1,
               ),
           boxShadow: [
@@ -204,6 +229,14 @@ class CategoryFilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final inactiveBorder = isDark
+        ? const Color(0xFFFFFFFF).withValues(alpha: 0.12)
+        : const Color(0xFF000000).withValues(alpha: 0.12);
+    final inactiveLabel = isDark
+        ? const Color(0xFF889B97)
+        : AppColors.lightMuted;
+
     return Pressable(
       onTap: onTap,
       child: AnimatedContainer(
@@ -217,7 +250,7 @@ class CategoryFilterChip extends StatelessWidget {
           border: Border.all(
             color: selected
                 ? const Color(0xFF5FDE9E)
-                : const Color(0xFFFFFFFF).withValues(alpha: 0.08),
+                : inactiveBorder,
             width: selected ? 1.5 : 1,
           ),
         ),
@@ -228,7 +261,7 @@ class CategoryFilterChip extends StatelessWidget {
             fontWeight: FontWeight.w600,
             color: selected
                 ? const Color(0xFF5FDE9E)
-                : const Color(0xFF889B97),
+                : inactiveLabel,
           ),
         ),
       ),
@@ -283,7 +316,7 @@ class GoalStatusPill extends StatelessWidget {
   }
 }
 
-/// Goal meta tile for detailed info
+/// Goal meta tile for detailed info — theme-aware text colors
 class GoalMetaTile extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -298,27 +331,49 @@ class GoalMetaTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? AppColors.white : AppColors.lightText;
+    final mutedColor = isDark ? AppColors.muted : AppColors.lightMuted;
+    final bgColor = isDark
+        ? const Color(0xFFFFFFFF).withValues(alpha: 0.05)
+        : const Color(0xFF000000).withValues(alpha: 0.03);
+    final borderColor = isDark
+        ? const Color(0xFFFFFFFF).withValues(alpha: 0.08)
+        : const Color(0xFF000000).withValues(alpha: 0.07);
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFFFFF).withValues(alpha: 0.05),
+        color: bgColor,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFFFFFFF).withValues(alpha: 0.08),
-        ),
+        border: Border.all(color: borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(icon, size: 16, color: const Color(0xFF889B97)),
+              Icon(icon, size: 16, color: mutedColor),
               const SizedBox(width: 6),
-              Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF889B97))),
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(fontSize: 11, color: mutedColor),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),
-          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFFFFFFFF))),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: textColor,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );
@@ -471,82 +526,74 @@ class _ExpandableGoalActionsState extends State<ExpandableGoalActions>
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        ScaleTransition(
-          scale: CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
-          child: Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                Expanded(
-                  child: Pressable(
-                    onTap: widget.onContribution,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF5FDE9E).withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: const Color(0xFF5FDE9E).withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.add_rounded, color: Color(0xFF5FDE9E), size: 18),
-                          SizedBox(width: 6),
-                          Text(
-                            'Save Money',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF5FDE9E),
-                            ),
+    return SizedBox(
+      width: MediaQuery.sizeOf(context).width - 36,
+      child: ScaleTransition(
+        scale: CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+        child: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              Expanded(
+                child: Pressable(
+                  onTap: widget.onContribution,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF5FDE9E),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add_rounded, color: Color(0xFF111C1A), size: 18),
+                        SizedBox(width: 6),
+                        Text(
+                          'Save Money',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF111C1A),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Pressable(
-                    onTap: widget.onGoal,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF5FDE9E).withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: const Color(0xFF5FDE9E),
-                          width: 1.5,
-                        ),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.flag_rounded, color: Color(0xFF5FDE9E), size: 18),
-                          SizedBox(width: 6),
-                          Text(
-                            'Add Goal',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF5FDE9E),
-                            ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Pressable(
+                  onTap: widget.onGoal,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF5FDE9E),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.flag_rounded, color: Color(0xFF111C1A), size: 18),
+                        SizedBox(width: 6),
+                        Text(
+                          'Add Goal',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF111C1A),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -557,21 +604,22 @@ class AchievementShelf extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GlassCard(
       padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.emoji_events_rounded, color: Color(0xFF5FDE9E)),
-              SizedBox(width: 10),
+              const Icon(Icons.emoji_events_rounded, color: Color(0xFF5FDE9E)),
+              const SizedBox(width: 10),
               Text(
                 'Achievement Badges',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFFFFFFFF),
+                  color: isDark ? AppColors.white : AppColors.lightText,
                 ),
               ),
             ],
@@ -588,10 +636,14 @@ class AchievementShelf extends StatelessWidget {
               8,
               (index) => Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFFFFF).withValues(alpha: 0.08),
+                  color: isDark
+                      ? const Color(0xFFFFFFFF).withValues(alpha: 0.08)
+                      : const Color(0xFF000000).withValues(alpha: 0.04),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: const Color(0xFFFFFFFF).withValues(alpha: 0.1),
+                    color: isDark
+                        ? const Color(0xFFFFFFFF).withValues(alpha: 0.1)
+                        : const Color(0xFF000000).withValues(alpha: 0.07),
                   ),
                 ),
                 child: Column(
@@ -603,13 +655,13 @@ class AchievementShelf extends StatelessWidget {
                       color: const Color(0xFF889B97).withValues(alpha: 0.5),
                     ),
                     const SizedBox(height: 6),
-                    const Text(
+                    Text(
                       'Locked',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF889B97),
+                        color: isDark ? AppColors.muted : AppColors.lightMuted,
                       ),
                     ),
                   ],
@@ -622,5 +674,3 @@ class AchievementShelf extends StatelessWidget {
     );
   }
 }
-
-

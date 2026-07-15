@@ -27,4 +27,11 @@ class AppColors {
     Color(0xFF0F1F1B),
     Color(0xFF0A1714),
   ];
+
+  // Light background gradient
+  static const List<Color> lightBgGradient = [
+    Color(0xFFF0FAF4),
+    Color(0xFFE8F5ED),
+    Color(0xFFF5FAF1),
+  ];
 }

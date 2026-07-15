@@ -43,16 +43,15 @@ class QuickActions extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 14),
               decoration: BoxDecoration(
-                color: AppColors.panel,
+                color: AppColors.lime,
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: AppColors.muted.withValues(alpha: 0.18)),
               ),
               child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.payments_rounded, color: AppColors.lime),
-                  SizedBox(width: 8),
-                  Text('Add Savings', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.w800)),
+                  Icon(Icons.payments_rounded, color: AppColors.ink),
+                  const SizedBox(width: 8),
+                  Text('Add Savings', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w800)),
                 ],
               ),
             ),

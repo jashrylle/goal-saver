@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../models/goal_model.dart';
 import '../../state/goal_saver_controller.dart';
 import '../../utils/app_colors.dart';
 import '../../widgets/common_widgets.dart';
@@ -12,26 +11,36 @@ class GoalSearchAndFilters extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<GoalSaverController>();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? AppColors.white : AppColors.lightText;
+    final mutedColor = isDark ? AppColors.muted : AppColors.lightMuted;
+    final searchBg = isDark
+        ? AppColors.panel
+        : const Color(0xFFFFFFFF).withValues(alpha: 0.85);
+    final searchBorder = isDark
+        ? AppColors.muted.withValues(alpha: 0.18)
+        : const Color(0xFF000000).withValues(alpha: 0.08);
+
     return Column(
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: BoxDecoration(
-            color: AppColors.panel,
+            color: searchBg,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: AppColors.muted.withValues(alpha: 0.18)),
+            border: Border.all(color: searchBorder),
           ),
           child: Row(
             children: [
-              const Icon(Icons.search_rounded, color: AppColors.muted, size: 18),
+              Icon(Icons.search_rounded, color: mutedColor, size: 18),
               const SizedBox(width: 10),
               Expanded(
                 child: TextField(
                   onChanged: controller.updateSearch,
-                  style: const TextStyle(color: AppColors.white),
-                  decoration: const InputDecoration(
+                  style: TextStyle(color: textColor),
+                  decoration: InputDecoration(
                     hintText: 'Search products...',
-                    hintStyle: TextStyle(color: AppColors.muted),
+                    hintStyle: TextStyle(color: mutedColor),
                     border: InputBorder.none,
                   ),
                 ),
@@ -50,7 +59,7 @@ class GoalSearchAndFilters extends StatelessWidget {
                 onTap: () => controller.setCategory(null),
               ),
               const SizedBox(width: 8),
-              ...GoalCategory.predefined.map(
+              ...controller.allCategories.map(
                 (category) => Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: CategoryFilterChip(

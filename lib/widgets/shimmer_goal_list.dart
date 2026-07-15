@@ -33,21 +33,25 @@ class EmptyGoalsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? AppColors.white : AppColors.lightText;
+    final mutedColor = isDark ? AppColors.muted : AppColors.lightMuted;
+
     return GlassCard(
       padding: const EdgeInsets.all(22),
       child: Column(
         children: [
-          Icon(Icons.shopping_bag_outlined, size: 44, color: AppColors.muted),
+          Icon(Icons.shopping_bag_outlined, size: 44, color: mutedColor),
           const SizedBox(height: 12),
           Text(
             'No products saved yet',
-            style: AppText.title,
+            style: AppText.title.copyWith(color: textColor),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
           Text(
             'Add your first item you want to save for!',
-            style: AppText.bodyMuted,
+            style: AppText.bodyMuted.copyWith(color: mutedColor),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),

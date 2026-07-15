@@ -4,6 +4,9 @@ import '../../state/goal_saver_controller.dart';
 import '../../utils/responsive_metrics.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/app_colors.dart';
+import '../../utils/app_text_styles.dart';
+import '../../widgets/sheets/goal_details_sheet.dart';
 import 'analytics_range_filter.dart';
 import 'analytics_hero.dart';
 import 'responsive_chart_grid.dart';
@@ -26,6 +29,14 @@ class AnalyticsDashboard extends StatelessWidget {
         SafeArea(
           child: Consumer<GoalSaverController>(
             builder: (context, controller, _) {
+              // Top performer goal
+              final goals = controller.goals;
+              final topGoal = goals.isEmpty
+                  ? null
+                  : goals.reduce(
+                      (a, b) => a.progress > b.progress ? a : b,
+                    );
+
               return CustomScrollView(
                 physics: const BouncingScrollPhysics(),
                 slivers: [
@@ -35,20 +46,75 @@ class AnalyticsDashboard extends StatelessWidget {
                     ),
                     sliver: SliverList.list(
                       children: [
-                        const DashboardHeader(
-                          eyebrow: 'Analytics',
-                          title: 'Savings discipline',
-                          trailingIcon: Icons.calendar_month_rounded,
+                        // Header
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Analytics',
+                                    style: AppText.caption.copyWith(
+                                      color: AppColors.lime,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Your Savings Report',
+                                    style: AppText.titleLarge,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (topGoal != null)
+                              Pressable(
+                                onTap: () => showGoalDetailsSheet(context, topGoal),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: topGoal.color.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: topGoal.color.withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(topGoal.icon,
+                                          size: 14, color: topGoal.color),
+                                      const SizedBox(width: 5),
+                                      Icon(Icons.emoji_events_rounded,
+                                          size: 12, color: topGoal.color),
+                                      const SizedBox(width: 2),
+                                      Text(
+                                        topGoal.title,
+                                        style: AppText.caption.copyWith(
+                                          color: topGoal.color,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 16),
                         const AnalyticsRangeFilter(),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 16),
                         AnalyticsHero(controller: controller),
                         const SizedBox(height: 16),
                         ResponsiveChartGrid(
                           children: [
-                            MonthlyTrendCard(range: controller.range),
                             WeeklyContributionCard(range: controller.range),
+                            MonthlyTrendCard(range: controller.range),
                           ],
                         ),
                         const SizedBox(height: 16),

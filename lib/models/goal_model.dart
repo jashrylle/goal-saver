@@ -315,6 +315,7 @@ class SavingsLog {
   }
 
   SavingsLog copyWith({
+    double? amount,
     String? notes,
     SavingsEntryType? entryType,
   }) {
@@ -322,7 +323,7 @@ class SavingsLog {
       id: id,
       goalId: goalId,
       goalTitle: goalTitle,
-      amount: amount,
+      amount: amount ?? this.amount,
       date: date,
       entryType: entryType ?? this.entryType,
       notes: notes ?? this.notes,
@@ -606,10 +607,94 @@ enum AnalyticsRange {
   final String label;
 
   const AnalyticsRange(this.label);
+}/// Calendar event for tracking non-goal events on the calendar
+class CalendarEvent {
+  final String id;
+  final String title;
+  final String? notes;
+  final DateTime date;
+  final TimeOfDay? time;
+  final IconData icon;
+  final Color color;
+
+  const CalendarEvent({
+    required this.id,
+    required this.title,
+    this.notes,
+    required this.date,
+    this.time,
+    this.icon = Icons.event_rounded,
+    this.color = const Color(0xFFA8FF3E),
+  });
+
+  /// Formatted time string
+  String get formattedTime {
+    if (time == null) return '';
+    final hour = time!.hour.toString().padLeft(2, '0');
+    final minute = time!.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  CalendarEvent copyWith({
+    String? title,
+    String? notes,
+    DateTime? date,
+    TimeOfDay? time,
+    bool clearTime = false,
+    IconData? icon,
+    Color? color,
+  }) {
+    return CalendarEvent(
+      id: id,
+      title: title ?? this.title,
+      notes: notes ?? this.notes,
+      date: date ?? this.date,
+      time: clearTime ? null : time ?? this.time,
+      icon: icon ?? this.icon,
+      color: color ?? this.color,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'notes': notes,
+      'date': date.toIso8601String(),
+      'timeHour': time?.hour,
+      'timeMinute': time?.minute,
+      'icon': icon.codePoint,
+      'iconFontFamily': icon.fontFamily,
+      'iconFontPackage': icon.fontPackage,
+      'color': color.toARGB32(),
+    };
+  }
+
+  factory CalendarEvent.fromMap(Map<String, dynamic> map) {
+    TimeOfDay? eventTime;
+    if (map['timeHour'] != null && map['timeMinute'] != null) {
+      eventTime = TimeOfDay(
+        hour: map['timeHour'] as int,
+        minute: map['timeMinute'] as int,
+      );
+    }
+    return CalendarEvent(
+      id: map['id'] as String,
+      title: map['title'] as String,
+      notes: map['notes'] as String?,
+      date: DateTime.parse(map['date'] as String),
+      time: eventTime,
+      icon: IconData(
+        (map['icon'] as int?) ?? Icons.event_rounded.codePoint,
+        fontFamily: (map['iconFontFamily'] as String?) ?? 'MaterialIcons',
+        fontPackage: map['iconFontPackage'] as String?,
+      ),
+      color: Color((map['color'] as int?) ?? 0xFFA8FF3E),
+    );
+  }
 }
 
-/// Goal management actions
-enum GoalAction {
+/// Goal management actionsenum GoalAction {
   view('View Details', Icons.visibility_rounded),
   add('Add Savings', Icons.add_rounded),
   edit('Edit Goal', Icons.edit_rounded),

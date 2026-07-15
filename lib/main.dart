@@ -4,9 +4,17 @@ import 'app.dart';
 import 'data/hive_store.dart';
 import 'data/memory_store.dart';
 import 'state/goal_saver_controller.dart';
+import 'services/notification_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize notifications
+  try {
+    await NotificationService().initialize();
+    await NotificationService().requestPermissions();
+  } catch (_) {}
+
   // Start immediately with in-memory store so the UI appears without delay.
   // Hive is initialised in the background; the controller swaps stores once ready.
   final controller = GoalSaverController(MemoryGoalSaverStore())..load();

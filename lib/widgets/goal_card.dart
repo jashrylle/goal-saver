@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/goal_model.dart';
+import '../state/goal_saver_controller.dart';
 import '../utils/app_colors.dart';
 import '../utils/app_text_styles.dart';
-import '../utils/extensions.dart';
 import 'common_widgets.dart';
 
 /// Animated goal card shown in the home list.
@@ -20,6 +21,10 @@ class AnimatedGoalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final controller = context.watch<GoalSaverController>();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? AppColors.white : AppColors.lightText;
+    final mutedColor = isDark ? AppColors.muted : AppColors.lightMuted;
     final progress = goal.progress;
     final moneyNeeded = goal.moneyNeeded;
 
@@ -56,9 +61,9 @@ class AnimatedGoalCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(goal.title, style: AppText.title),
+                        Text(goal.title, style: AppText.title.copyWith(color: textColor)),
                         const SizedBox(height: 4),
-                        Text(goal.categoryName, style: AppText.caption),
+                        Text(goal.category.label, style: AppText.caption.copyWith(color: mutedColor)),
                       ],
                     ),
                   ),
@@ -72,10 +77,12 @@ class AnimatedGoalCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Money Needed', style: AppText.caption),
+                        Text('Money Needed', style: AppText.caption.copyWith(color: mutedColor)),
                         const SizedBox(height: 4),
                         Text(
-                          '₱${moneyNeeded.money}',
+                          controller.showBalance
+                              ? controller.formatMoney(moneyNeeded)
+                              : '${controller.currencySymbol} •••',
                           style: AppText.title.copyWith(color: AppColors.lime),
                         ),
                       ],
@@ -85,11 +92,13 @@ class AnimatedGoalCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text('Saved', style: AppText.caption),
+                        Text('Saved', style: AppText.caption.copyWith(color: mutedColor)),
                         const SizedBox(height: 4),
                         Text(
-                          '₱${goal.saved.money}',
-                          style: AppText.title,
+                          controller.showBalance
+                              ? controller.formatMoney(goal.saved)
+                              : '${controller.currencySymbol} •••',
+                          style: AppText.title.copyWith(color: textColor),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ],
@@ -104,21 +113,50 @@ class AnimatedGoalCard extends StatelessWidget {
                 backgroundColor: AppColors.muted.withValues(alpha: 0.18),
                 valueColor: AlwaysStoppedAnimation(goal.color),
               ),
-              const SizedBox(height: 10),
+          const SizedBox(height: 10),
+          // Exact remaining/completed amount display
+          Row(
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Icon(
+                      goal.completed ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                      size: 12,
+                      color: goal.completed ? const Color(0xFF00E676) : mutedColor,
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        goal.completed
+                            ? 'Completed! Saved ${controller.showBalance ? controller.formatMoney(goal.saved) : "•••"}'
+                            : '${controller.showBalance ? controller.formatMoney(goal.remaining) : "•••"} remaining of ${controller.showBalance ? controller.formatMoney(goal.target) : "•••"}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: goal.completed ? const Color(0xFF00E676) : mutedColor,
+                          fontWeight: goal.completed ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
               Row(
                 children: [
                   MilestoneIndicator(goal: goal),
                   const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      '${goal.progressPercent} • ${goal.timeLeft}',
-                      style: AppText.caption,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.right,
-                    ),
+                  Text(
+                    '${goal.progressPercent} • ${goal.timeLeft}',
+                    style: AppText.caption.copyWith(color: mutedColor),
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
                   ),
                 ],
               ),
+            ],
+          ),
             ],
           ),
         ),
