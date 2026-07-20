@@ -2,14 +2,37 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz_data;
 
+/// Callback type for when a notification is tapped.
+/// Returns the payload string (e.g. "goal_id" or "add_savings").
+typedef NotificationTapCallback = void Function(String? payload);
+
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
   NotificationService._internal();
 
+  /// Callback invoked when user taps on a notification.
+  NotificationTapCallback? onNotificationTap;
+
   final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
 
-  Future<void> initialize() async {
+  /// Queue for notification taps that arrive before the app is fully ready.
+  static String? _pendingNotificationPayload;
+
+  /// Store a notification payload for later consumption by [GoalSaverShell].
+  static void storePendingPayload(String? payload) {
+    _pendingNotificationPayload = payload;
+  }
+
+  /// Returns and clears any pending notification payload.
+  static String? consumePendingPayload() {
+    final payload = _pendingNotificationPayload;
+    _pendingNotificationPayload = null;
+    return payload;
+  }
+
+  Future<void> initialize({NotificationTapCallback? onTap}) async {
+    onNotificationTap = onTap;
     tz_data.initializeTimeZones();
 
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -24,7 +47,26 @@ class NotificationService {
       iOS: iosSettings,
     );
 
-    await _notifications.initialize(settings: initSettings);
+    await _notifications.initialize(
+      settings: initSettings,
+      onDidReceiveNotificationResponse: _onNotificationResponse,
+    );
+  }
+
+  /// Handle notification tap — parse payload and route accordingly.
+  void _onNotificationResponse(NotificationResponse response) {
+    final payload = response.payload;
+    
+    // If a custom callback is set, use it
+    if (onNotificationTap != null) {
+      onNotificationTap!(payload);
+      return;
+    }
+
+    // If no callback, store the payload for later consumption by GoalSaverShell
+    if (payload != null && payload.isNotEmpty) {
+      storePendingPayload(payload);
+    }
   }
 
   Future<void> requestPermissions() async {
@@ -69,6 +111,7 @@ class NotificationService {
       title: title,
       body: body,
       notificationDetails: notificationDetails,
+      payload: 'notification_$id',
     );
   }
 
@@ -106,6 +149,7 @@ class NotificationService {
       notificationDetails: notificationDetails,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       matchDateTimeComponents: DateTimeComponents.time,
+      payload: 'daily_reminder_$id',
     );
   }
 
@@ -125,6 +169,7 @@ class NotificationService {
   /// For daily goals: repeats daily at [hour]:[minute].
   /// For weekly goals: repeats weekly on the chosen weekday.
   /// For monthly goals: repeats monthly on the chosen day.
+  /// Uses platform-level scheduling to fire even when the app is in the background.
   Future<void> scheduleFrequencyAware({
     required int id,
     required String title,
@@ -153,8 +198,20 @@ class NotificationService {
       iOS: iosDetails,
     );
 
-    // Calculate the interval between reminders based on frequency
-    // For frequencies >= daily (1 day), schedule every `frequencyDays` days
+    // Choose the right repeat component based on frequency:
+    // - Daily (1 day): repeat at the same time each day
+    // - Weekly (7 days): repeat on the same day-of-week at the same time
+    // - Bi-weekly (14 days): repeat every 14 days at the same time
+    // - Monthly (30+ days): repeat on the same day-of-month at the same time
+    final DateTimeComponents repeatComponent;
+    if (frequencyDays <= 1) {
+      repeatComponent = DateTimeComponents.time;
+    } else if (frequencyDays <= 7) {
+      repeatComponent = DateTimeComponents.dayOfWeekAndTime;
+    } else {
+      repeatComponent = DateTimeComponents.dayOfMonthAndTime;
+    }
+
     final scheduledDate = _nextInstanceOfTime(hour, minute);
 
     await _notifications.zonedSchedule(
@@ -164,7 +221,8 @@ class NotificationService {
       scheduledDate: scheduledDate,
       notificationDetails: notificationDetails,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      matchDateTimeComponents: DateTimeComponents.time,
+      matchDateTimeComponents: repeatComponent,
+      payload: 'goal_reminder_$id',
     );
   }
 
@@ -203,6 +261,7 @@ class NotificationService {
       scheduledDate: scheduledDate,
       notificationDetails: notificationDetails,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      payload: 'alert_$id',
     );
   }
 

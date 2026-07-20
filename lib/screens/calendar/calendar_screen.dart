@@ -249,25 +249,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             ),
                             const SizedBox(height: 12),
                             if (customEvents.isEmpty && goalDueDates.isEmpty)
-                              GlassCard(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(20),
-                                  child: Center(
-                                    child: Column(
-                                      children: [
-                                        const Icon(Icons.event_busy_rounded, color: AppColors.muted, size: 36),
-                                        const SizedBox(height: 8),
-                                        Text('No events on this day', style: AppText.body.copyWith(color: AppColors.muted)),
-                                        const SizedBox(height: 12),
-                                        TextButton.icon(
-                                          onPressed: () => _showAddEventDialog(context, controller, _selectedDay!),
-                                          icon: const Icon(Icons.add_rounded, color: AppColors.lime),
-                                          label: const Text('Add Event', style: TextStyle(color: AppColors.lime)),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
+                              EmptyState(
+                                icon: Icons.event_busy_rounded,
+                                title: 'No events on this day',
+                                subtitle: 'Tap the button below to schedule\nan event or set a goal deadline',
+                                actionLabel: 'Add Event',
+                                onAction: () => _showAddEventDialog(context, controller, _selectedDay!),
                               )
                             else ...[
                               ...customEvents.map((event) => Padding(

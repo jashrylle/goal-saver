@@ -1,5 +1,4 @@
 import '../models/goal_model.dart';
-import '../models/savings_plan_model.dart' show PlanStatus;
 import 'notification_service.dart';
 
 /// Frequency-aware notification scheduler for per-goal reminders.
@@ -17,7 +16,7 @@ class PlanNotificationScheduler {
     required bool remindersEnabled,
     required int reminderHour,
     required int reminderMinute,
-    required String formatMoney(double value),
+    required String Function(double) formatMoney,
   }) {
     if (!remindersEnabled || goal.paused || goal.completed || goal.deleted || goal.archived) {
       cancelGoal(goal.id);
@@ -36,6 +35,7 @@ class PlanNotificationScheduler {
     final id = _goalId(goal.id);
 
     // Use the notification service with frequency-aware scheduling
+    // The payload contains the goal ID so tapping the notification opens the Add Savings sheet
     NotificationService().scheduleFrequencyAware(
       id: id,
       title: title,
@@ -50,7 +50,7 @@ class PlanNotificationScheduler {
   void scheduleAtRiskAlert({
     required SavingsGoal goal,
     required bool remindersEnabled,
-    required String formatMoney(double value),
+    required String Function(double) formatMoney,
   }) {
     if (!remindersEnabled) return;
     final id = _atRiskId(goal.id);
@@ -73,6 +73,11 @@ class PlanNotificationScheduler {
     for (final goal in goals) {
       cancelGoal(goal.id);
     }
+  }
+
+  /// Cancel ALL notifications (both goal and system).
+  void cancelAll() {
+    NotificationService().cancelAllNotifications();
   }
 
   /// Stable numeric ID for a goal's regular reminder notification.

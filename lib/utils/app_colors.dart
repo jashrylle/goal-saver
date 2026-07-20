@@ -10,16 +10,21 @@ class AppColors {
   static const Color muted = Color(0xFF98A49D);
   static const Color glass = Color(0x551B292C);
 
-  // Light mode
-  static const Color lightInk = Color(0xFFF5FAF1);
-  static const Color lightPanel = Color(0xFFFFFFFF);
-  static const Color lightText = Color(0xFF15201C);
-  static const Color lightMuted = Color(0xFF999999);
+  // Light mode — softened palette for reduced eye strain
+  // Soft off-white/warm-gray surfaces replace pure white
+  static const Color lightInk = Color(0xFFF0F5EE);
+  static const Color lightPanel = Color(0xFFFCFDFA);
+  static const Color lightText = Color(0xFF1C2E28);
+  static const Color lightMuted = Color(0xFF8A9B94);
+  static const Color lightCardBg = Color(0xFFFFFEFC);
+  static const Color lightSurface = Color(0xFFF5F9F5);
+  static const Color lightBorder = Color(0xFFDDE6E0);
+  static const Color lightSubtle = Color(0xFFB8C9C1);
 
   // Semantic
-  static const Color success = lime;
-  static const Color warning = Color(0xFFFFD93D);
-  static const Color error = Color(0xFFFF6B6B);
+  static const Color success = Color(0xFF4CAF50);
+  static const Color warning = Color(0xFFFFA726);
+  static const Color error = Color(0xFFEF5350);
 
   // Dark background gradient
   static const List<Color> darkBgGradient = [
@@ -28,10 +33,10 @@ class AppColors {
     Color(0xFF0A1714),
   ];
 
-  // Light background gradient
+  // Light background gradient — softer, warmer tones
   static const List<Color> lightBgGradient = [
-    Color(0xFFF0FAF4),
-    Color(0xFFE8F5ED),
-    Color(0xFFF5FAF1),
+    Color(0xFFF0F5EE),
+    Color(0xFFEAF2EA),
+    Color(0xFFF0F5EE),
   ];
 }

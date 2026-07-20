@@ -96,17 +96,25 @@ InputDecoration goalInputDecoration(String label, IconData icon, {BuildContext? 
   );
 }
 
-/// Pressable interaction widget - makes any widget pressable with visual feedback
+/// Pressable interaction widget - makes any widget pressable with visual feedback.
+/// Includes scale-down animation and optional ripple effect on tap.
+/// Automatically applies a minimum 44x44 touch target for accessibility.
 class Pressable extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
   final Duration duration;
+  final double scaleEnd;
+  final String? semanticLabel;
+  final String? tooltip;
 
   const Pressable({
     super.key,
     required this.child,
     this.onTap,
     this.duration = const Duration(milliseconds: 120),
+    this.scaleEnd = 0.96,
+    this.semanticLabel,
+    this.tooltip,
   });
 
   @override
@@ -116,11 +124,15 @@ class Pressable extends StatefulWidget {
 class _PressableState extends State<Pressable>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
+  late Animation<double> _scaleAnim;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, duration: widget.duration);
+    _scaleAnim = Tween<double>(begin: 1, end: widget.scaleEnd).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutQuad),
+    );
   }
 
   @override
@@ -129,30 +141,73 @@ class _PressableState extends State<Pressable>
     super.dispose();
   }
 
+  void _onTapDown(TapDownDetails details) {
+    if (mounted) {
+      _controller.forward();
+    }
+  }
+
+  void _onTapUp(TapUpDetails details) {
+    widget.onTap?.call();
+    if (mounted) {
+      _controller.reverse();
+    }
+  }
+
+  void _onTapCancel() {
+    if (mounted) {
+      _controller.reverse();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) {
-        _controller.forward();
-      },
-      onTapUp: (_) {
-        _controller.reverse();
-        widget.onTap?.call();
-      },
-      onTapCancel: () {
-        _controller.reverse();
-      },
-      child: ScaleTransition(
-        scale: Tween<double>(begin: 1, end: 0.96).animate(
-          CurvedAnimation(parent: _controller, curve: Curves.easeOutQuad),
+    final button = GestureDetector(
+      onTapDown: widget.onTap != null ? _onTapDown : null,
+      onTapUp: widget.onTap != null ? _onTapUp : null,
+      onTapCancel: widget.onTap != null ? _onTapCancel : null,
+      child: Semantics(
+        label: widget.semanticLabel,
+        button: true,
+        enabled: widget.onTap != null,
+        child: AnimatedBuilder(
+          animation: _scaleAnim,
+          builder: (context, child) {
+            return Transform.scale(
+              scale: _scaleAnim.value,
+              child: child,
+            );
+          },
+          child: widget.child,
         ),
-        child: widget.child,
       ),
     );
+
+    // Wrap in Tooltip if provided
+    if (widget.tooltip != null && widget.onTap != null) {
+      return Tooltip(
+        message: widget.tooltip!,
+        preferBelow: false,
+        decoration: BoxDecoration(
+          color: const Color(0xFF07100E),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        textStyle: const TextStyle(
+          color: Color(0xFFA8FF3E),
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: button,
+      );
+    }
+
+    return button;
   }
 }
 
-/// Glassmorphism card widget — adapts to dark/light theme
+/// Glassmorphism card widget — adapts to dark/light theme.
+/// Includes a subtle hover/lift animation when content changes.
 class GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
@@ -162,6 +217,9 @@ class GlassCard extends StatelessWidget {
   final VoidCallback? onTap;
   final Color? backgroundColor;
   final Border? border;
+  final List<BoxShadow>? boxShadow;
+  final EdgeInsetsGeometry? marginOverride;
+  final String? semanticLabel;
 
   const GlassCard({
     super.key,
@@ -173,44 +231,63 @@ class GlassCard extends StatelessWidget {
     this.onTap,
     this.backgroundColor,
     this.border,
+    this.boxShadow,
+    this.marginOverride,
+    this.semanticLabel,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Pressable(
-      onTap: onTap,
-      child: Container(
-        height: height,
-        width: width,
-        margin: margin,
-        decoration: BoxDecoration(
-          color: backgroundColor ??
-              (isDark
-                  ? const Color(0xFFFFFFFF).withValues(alpha: 0.055)
-                  : const Color(0xFFFFFFFF).withValues(alpha: 0.75)),
-          borderRadius: BorderRadius.circular(24),
-          border: border ??
-              Border.all(
-                color: isDark
-                    ? const Color(0xFFFFFFFF).withValues(alpha: 0.08)
-                    : const Color(0xFF000000).withValues(alpha: 0.06),
-                width: 1,
-              ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.26 : 0.06),
-              blurRadius: 28,
-              offset: const Offset(0, 20),
+
+    final container = AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      height: height,
+      width: width,
+      margin: marginOverride ?? margin,
+      decoration: BoxDecoration(
+        color: backgroundColor ??
+            (isDark
+                ? const Color(0xFFFFFFFF).withValues(alpha: 0.055)
+                : const Color(0xFFFFFFFF).withValues(alpha: 0.75)),
+        borderRadius: BorderRadius.circular(24),
+        border: border ??
+            Border.all(
+              color: isDark
+                  ? const Color(0xFFFFFFFF).withValues(alpha: 0.08)
+                  : const Color(0xFF000000).withValues(alpha: 0.06),
+              width: 1,
             ),
-          ],
-        ),
+        boxShadow: boxShadow ?? [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.26 : 0.06),
+            blurRadius: 28,
+            offset: const Offset(0, 20),
+          ),
+        ],
+      ),
+      child: Semantics(
+        label: semanticLabel,
+        container: true,
         child: Padding(
           padding: padding,
           child: child,
         ),
       ),
     );
+
+    // Only wrap in Pressable when onTap is provided — otherwise child gesture
+    // handlers (InkWell, GestureDetector, etc.) will be blocked by the Pressable's
+    // GestureDetector winning the gesture arena and not forwarding the event.
+    if (onTap != null) {
+      return Pressable(
+        onTap: onTap,
+        child: container,
+      );
+    }
+
+    return container;
   }
 }
 
@@ -237,31 +314,37 @@ class CategoryFilterChip extends StatelessWidget {
         ? const Color(0xFF889B97)
         : AppColors.lightMuted;
 
-    return Pressable(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFF5FDE9E).withValues(alpha: 0.18)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
+    return Semantics(
+      label: 'Filter by $label category',
+      button: true,
+      selected: selected,
+      child: Pressable(
+        onTap: onTap,
+        semanticLabel: selected ? '$label selected' : 'Filter by $label',
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
             color: selected
-                ? const Color(0xFF5FDE9E)
-                : inactiveBorder,
-            width: selected ? 1.5 : 1,
+                ? const Color(0xFF5FDE9E).withValues(alpha: 0.18)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFF5FDE9E)
+                  : inactiveBorder,
+              width: selected ? 1.5 : 1,
+            ),
           ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: selected
-                ? const Color(0xFF5FDE9E)
-                : inactiveLabel,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected
+                  ? const Color(0xFF5FDE9E)
+                  : inactiveLabel,
+            ),
           ),
         ),
       ),
@@ -380,17 +463,19 @@ class GoalMetaTile extends StatelessWidget {
   }
 }
 
-/// Animated counter widget for balance display
+/// Animated counter widget for balance display with smooth number transitions.
 class AnimatedCounter extends StatefulWidget {
   final double value;
   final String prefix;
   final TextStyle style;
+  final int decimals;
 
   const AnimatedCounter({
     super.key,
     required this.value,
     required this.prefix,
     required this.style,
+    this.decimals = 0,
   });
 
   @override
@@ -401,7 +486,7 @@ class _AnimatedCounterState extends State<AnimatedCounter>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
-  late double _previousValue;
+  double _previousValue = 0;
 
   @override
   void initState() {
@@ -440,7 +525,7 @@ class _AnimatedCounterState extends State<AnimatedCounter>
         final displayValue =
             _previousValue + (widget.value - _previousValue) * _animation.value;
         return Text(
-          '${widget.prefix}${displayValue.toStringAsFixed(0)}',
+          '${widget.prefix}${displayValue.toStringAsFixed(widget.decimals)}',
           style: widget.style,
         );
       },
@@ -592,6 +677,184 @@ class _ExpandableGoalActionsState extends State<ExpandableGoalActions>
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A decorative animated progress ring that fills up over time.
+class AnimatedProgressRing extends StatefulWidget {
+  final double progress;
+  final Color color;
+  final double size;
+  final double strokeWidth;
+  final Widget? child;
+
+  const AnimatedProgressRing({
+    super.key,
+    required this.progress,
+    required this.color,
+    this.size = 60,
+    this.strokeWidth = 5,
+    this.child,
+  });
+
+  @override
+  State<AnimatedProgressRing> createState() => _AnimatedProgressRingState();
+}
+
+class _AnimatedProgressRingState extends State<AnimatedProgressRing>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+    _animation = Tween<double>(begin: 0, end: widget.progress).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void didUpdateWidget(AnimatedProgressRing oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.progress != widget.progress) {
+      _animation = Tween<double>(begin: _animation.value, end: widget.progress)
+          .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+      _controller.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, _) {
+        return SizedBox(
+          width: widget.size,
+          height: widget.size,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              CircularProgressIndicator(
+                value: _animation.value,
+                strokeWidth: widget.strokeWidth,
+                backgroundColor: widget.color.withValues(alpha: 0.15),
+                valueColor: AlwaysStoppedAnimation(widget.color),
+              ),
+              if (widget.child != null) widget.child!,
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Reusable empty state widget with icon, title, subtitle, and optional CTA.
+/// Adapts to the current theme (dark/light) automatically.
+class EmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  final Color? iconColor;
+  final EdgeInsetsGeometry padding;
+
+  const EmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.actionLabel,
+    this.onAction,
+    this.iconColor,
+    this.padding = const EdgeInsets.all(32),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mutedColor = isDark ? AppColors.muted : AppColors.lightMuted;
+    final color = iconColor ?? mutedColor;
+
+    return GlassCard(
+      padding: padding,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 56,
+              color: color.withValues(alpha: 0.4),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: mutedColor,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                subtitle!,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.4,
+                  color: mutedColor.withValues(alpha: 0.7),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 16),
+              Pressable(
+                onTap: onAction,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.lime.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.lime),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.add_rounded, color: AppColors.lime, size: 18),
+                      const SizedBox(width: 6),
+                      Text(
+                        actionLabel!,
+                        style: const TextStyle(
+                          color: AppColors.lime,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );

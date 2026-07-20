@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../models/achievement_model.dart';
+import '../../models/savings_plan_model.dart' show PlayerLevel;
 import '../../state/goal_saver_controller.dart';
 import '../../utils/app_colors.dart';
 import '../../utils/app_text_styles.dart';
 import '../../utils/responsive_metrics.dart';
 import '../../widgets/app_background.dart';
 import '../../widgets/common_widgets.dart';
+import 'notes_management_screen.dart';
 
 /// Dedicated user profile page showing personal info, badges, and savings streak.
 class ProfileScreen extends StatefulWidget {
@@ -178,14 +180,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildDefaultAvatar(String name, {double size = 80, double fontSize = 32}) {
+    final accentColor = context.read<GoalSaverController>().accentColor;
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: AppColors.lime.withValues(alpha: 0.18),
+        color: accentColor.withValues(alpha: 0.18),
         shape: BoxShape.circle,
         border: Border.all(
-          color: AppColors.lime.withValues(alpha: 0.4),
+          color: accentColor.withValues(alpha: 0.4),
           width: 2,
         ),
       ),
@@ -195,7 +198,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           style: TextStyle(
             fontSize: fontSize,
             fontWeight: FontWeight.w900,
-            color: AppColors.lime,
+            color: accentColor,
           ),
         ),
       ),
@@ -204,25 +207,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // ── Badge system from AchievementBadge model ───────────────────────────
   Widget _buildBadgesSection(GoalSaverController controller) {
-    final totalSaved = controller.totalSaved;
-    final completedCount = controller.allActiveGoals.where((g) => g.completed).length;
-    final activeCount = controller.allActiveGoals.length;
-    final score = controller.disciplineScore;
-
-    // Determine which badges are unlocked based on actual data
+    // Use the controller's persisted achievement badges for accurate state
     final allBadges = Achievements.all;
-    final unlockedBadgeIds = <String>{};
-
-    if (activeCount >= 1) unlockedBadgeIds.add('first_goal');
-    if (activeCount >= 3) unlockedBadgeIds.add('three_goals');
-    if (activeCount >= 5) unlockedBadgeIds.add('five_goals');
-    if (controller.streakDays >= 7) unlockedBadgeIds.add('seven_day_streak');
-    if (controller.streakDays >= 30) unlockedBadgeIds.add('thirty_day_streak');
-    if (totalSaved >= 1000) unlockedBadgeIds.add('thousand_saved');
-    if (totalSaved >= 10000) unlockedBadgeIds.add('ten_thousand_saved');
-    if (completedCount >= 1) unlockedBadgeIds.add('first_goal_complete');
-    if (completedCount >= 3) unlockedBadgeIds.add('three_goals_complete');
-    if (score >= 90) unlockedBadgeIds.add('discipline_expert');
+    final badgeMap = {for (final b in controller.achievementBadges) b.id: b};
+    final unlockedCount = controller.achievementBadges.where((b) => b.unlocked).length;
 
     return GlassCard(
       padding: const EdgeInsets.all(16),
@@ -239,7 +227,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const Spacer(),
               Text(
-                '${unlockedBadgeIds.length}/${allBadges.length}',
+                '$unlockedCount/${allBadges.length}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -261,10 +249,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             itemCount: allBadges.length,
             itemBuilder: (context, index) {
               final badge = allBadges[index];
-              final unlocked = unlockedBadgeIds.contains(badge.id);
+              final tracked = badgeMap[badge.id];
+              final unlocked = tracked?.unlocked ?? false;
+              final progress = tracked?.currentProgress ?? 0;
               return GestureDetector(
-                onTap: () => _showBadgeDetail(context, badge, unlocked),
-                child: _BadgeItem(badge: badge, unlocked: unlocked),
+                onTap: () => _showBadgeDetail(context, badge, unlocked, progress),
+                child: _BadgeItem(badge: badge, unlocked: unlocked, progress: progress),
               );
             },
           ),
@@ -273,7 +263,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showBadgeDetail(BuildContext context, AchievementBadge badge, bool unlocked) {
+  void _showBadgeDetail(BuildContext context, AchievementBadge badge, bool unlocked, int progress) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
@@ -329,6 +319,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ],
             ),
+            if (!unlocked && badge.requirement > 0) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  minHeight: 8,
+                  value: (progress / badge.requirement).clamp(0.0, 1.0),
+                  backgroundColor: AppColors.muted.withValues(alpha: 0.15),
+                  valueColor: AlwaysStoppedAnimation(badge.color),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Progress: $progress / ${badge.requirement}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: badge.color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ],
         ),
         actions: [
@@ -651,6 +662,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           const SizedBox(height: 12),
 
+                          // ── Player Level Card ────────────────────────
+                          _PlayerLevelProfileCard(controller: controller),
+                          const SizedBox(height: 12),
+
                           // Total saved with discipline
                           GlassCard(
                             padding: const EdgeInsets.all(18),
@@ -725,13 +740,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           _buildBadgesSection(controller),
                           const SizedBox(height: 20),
 
-                          // Notes section
+                          // Notes section — clickable preview, opens dedicated screen
                           Text(
                             'Personal Notes',
                             style: AppText.adaptive(context, AppText.titleMedium),
                           ),
                           const SizedBox(height: 12),
-                          _NotesSection(controller: controller),
+                          _NotesPreviewSection(controller: controller),
                           const SizedBox(height: 20),
 
                           // Goals progress section
@@ -1056,8 +1071,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           TextButton.icon(
             onPressed: () {
+              // Close dialog first, then pop to shell using root navigator
               Navigator.pop(ctx);
-              Navigator.pop(context); // Go back to shell, then switch to analytics tab
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).maybePop();
+                }
+              });
             },
             icon: const Icon(Icons.bar_chart_rounded, size: 16),
             label: const Text('Go Back', style: TextStyle(color: AppColors.lime)),
@@ -1095,314 +1115,396 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Color mutedColor(bool isDark) => isDark ? AppColors.muted : AppColors.lightMuted;
 }
 
-/// Notes section widget for saving and managing multiple notes
-class _NotesSection extends StatefulWidget {
+/// Notes preview widget — clickable to open the full NotesManagementScreen
+class _NotesPreviewSection extends StatelessWidget {
   final GoalSaverController controller;
 
-  const _NotesSection({required this.controller});
-
-  @override
-  State<_NotesSection> createState() => _NotesSectionState();
-}
-
-class _NotesSectionState extends State<_NotesSection> {
-  final TextEditingController _newNoteController = TextEditingController();
-  bool _isSaving = false;
-
-  @override
-  void dispose() {
-    _newNoteController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _addNote() async {
-    final content = _newNoteController.text.trim();
-    if (content.isEmpty) return;
-
-    setState(() => _isSaving = true);
-    await widget.controller.addNote(content);
-    _newNoteController.clear();
-    if (mounted) {
-      setState(() => _isSaving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Note added!'),
-          backgroundColor: AppColors.lime,
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 1),
-        ),
-      );
-    }
-  }
-
-  Future<void> _deleteNote(String id) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(context).brightness == Brightness.dark ? AppColors.panel : Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Delete Note'),
-        content: const Text('Are you sure you want to delete this note?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete', style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
-    );
-    if (confirm == true) {
-      await widget.controller.deleteNote(id);
-    }
-  }
-
-  Future<void> _editNote(String id, String currentContent) async {
-    final editController = TextEditingController(text: currentContent);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(context).brightness == Brightness.dark ? AppColors.panel : Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Edit Note'),
-        content: TextField(
-          controller: editController,
-          maxLines: 4,
-          decoration: InputDecoration(
-            hintText: 'Edit your note...',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, editController.text.trim()),
-            child: const Text('Save', style: TextStyle(color: AppColors.lime)),
-          ),
-        ],
-      ),
-    );
-    editController.dispose();
-    if (result != null && result.isNotEmpty) {
-      await widget.controller.updateNote(id, result);
-    }
-  }
+  const _NotesPreviewSection({required this.controller});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? AppColors.white : AppColors.lightText;
     final mutedColor = isDark ? AppColors.muted : AppColors.lightMuted;
-    final notes = widget.controller.savedNotes;
+    final notes = controller.savedNotes;
+    final latestNote = notes.isNotEmpty ? notes.first['content'] as String : '';
+    final noteCount = notes.length;
+    final accentColor = controller.accentColor;
 
     return GlassCard(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.note_alt_rounded, color: AppColors.lime, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                'Notes & Reminders',
-                style: AppText.adaptive(context, AppText.title),
-              ),
-              const Spacer(),
-              if (notes.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: AppColors.lime.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const NotesManagementScreen(),
+            ),
+          );
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.note_alt_rounded, color: accentColor, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Notes & Reminders',
+                  style: AppText.adaptive(context, AppText.title),
+                ),
+                const Spacer(),
+                if (noteCount > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: accentColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '$noteCount',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: accentColor,
+                      ),
+                    ),
                   ),
-                  child: Text(
-                    '${notes.length}',
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.lime),
+                const SizedBox(width: 6),
+                Icon(Icons.arrow_forward_ios_rounded, size: 12, color: mutedColor),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (latestNote.isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.muted.withValues(alpha: 0.08)
+                      : AppColors.lightMuted.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  latestNote,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: textColor,
+                    height: 1.4,
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              )
+            else
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                child: Center(
+                  child: Column(
+                    children: [
+                      Icon(Icons.note_add_rounded, size: 36, color: mutedColor.withValues(alpha: 0.5)),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Tap to add notes and reminders\nfor your savings goals',
+                        style: TextStyle(fontSize: 12, color: mutedColor),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ),
                 ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Add new note input
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _newNoteController,
-                  style: TextStyle(color: textColor, fontSize: 13),
-                  maxLines: 2,
-                  minLines: 1,
-                  decoration: InputDecoration(
-                    hintText: 'Write a new note...',
-                    hintStyle: TextStyle(color: mutedColor, fontSize: 13),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: isDark ? AppColors.muted.withValues(alpha: 0.2) : AppColors.lightMuted.withValues(alpha: 0.3)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: isDark ? AppColors.muted.withValues(alpha: 0.2) : AppColors.lightMuted.withValues(alpha: 0.3)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppColors.lime, width: 1.5),
-                    ),
-                    filled: true,
-                    fillColor: isDark ? AppColors.muted.withValues(alpha: 0.08) : AppColors.lightMuted.withValues(alpha: 0.08),
-                    contentPadding: const EdgeInsets.all(12),
-                  ),
-                ),
               ),
-              const SizedBox(width: 8),
-              Pressable(
-                onTap: _isSaving ? null : _addNote,
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppColors.lime,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: _isSaving
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: Center(
-                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.ink),
-                          ),
-                        )
-                      : const Icon(Icons.add_rounded, color: AppColors.ink, size: 22),
-                ),
-              ),
-            ],
-          ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-          const SizedBox(height: 16),
+/// Player Level card shown in the Profile page — taps open a level details dialog.
+class _PlayerLevelProfileCard extends StatelessWidget {
+  final GoalSaverController controller;
 
-          // Notes list
-          if (notes.isEmpty)
+  const _PlayerLevelProfileCard({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    final level = controller.playerLevel;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? AppColors.white : AppColors.lightText;
+    final mutedColor = isDark ? AppColors.muted : AppColors.lightMuted;
+
+    return Pressable(
+      onTap: () => _showLevelDetails(context, controller, level),
+      child: GlassCard(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            // Level badge with gradient
             Container(
-              padding: const EdgeInsets.all(20),
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    controller.accentColor.withValues(alpha: 0.7),
+                    controller.accentColor,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: controller.accentColor.withValues(alpha: 0.3),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
               child: Center(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.note_add_rounded, size: 40, color: mutedColor.withValues(alpha: 0.5)),
-                    const SizedBox(height: 8),
                     Text(
-                      'No notes yet. Add your first note above!',
-                      style: TextStyle(fontSize: 12, color: mutedColor),
-                      textAlign: TextAlign.center,
+                      '${level.level}',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    Text(
+                      'LEVEL',
+                      style: TextStyle(
+                        fontSize: 7,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.ink.withValues(alpha: 0.7),
+                      ),
                     ),
                   ],
                 ),
               ),
-            )
-          else
-            ...notes.map((note) {
-              final id = note['id'] as String;
-              final content = note['content'] as String;
-              final createdAt = note['createdAt'] as String?;
-              final dateStr = createdAt != null
-                  ? _formatDate(DateTime.parse(createdAt))
-                  : '';
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? AppColors.muted.withValues(alpha: 0.08)
-                        : AppColors.lightMuted.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isDark
-                          ? AppColors.muted.withValues(alpha: 0.12)
-                          : AppColors.lightMuted.withValues(alpha: 0.15),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              content,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: textColor,
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Column(
-                            children: [
-                              Pressable(
-                                onTap: () => _editNote(id, content),
-                                child: Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.lime.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Icon(Icons.edit_rounded, size: 14, color: AppColors.lime),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Pressable(
-                                onTap: () => _deleteNote(id),
-                                child: Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.error.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Icon(Icons.delete_rounded, size: 14, color: AppColors.error),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      if (dateStr.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          dateStr,
-                          style: TextStyle(fontSize: 10, color: mutedColor),
+                      Text(
+                        'Level ${level.level}',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: textColor,
                         ),
-                      ],
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '· ${level.title}',
+                        style: TextStyle(fontSize: 13, color: controller.accentColor),
+                      ),
                     ],
                   ),
-                ),
-              );
-            }),
-        ],
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(5),
+                    child: LinearProgressIndicator(
+                      minHeight: 8,
+                      value: level.progress,
+                      backgroundColor: AppColors.muted.withValues(alpha: 0.15),
+                      valueColor: AlwaysStoppedAnimation(controller.accentColor),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        '${level.xp} / ${level.xpToNextLevel} XP',
+                        style: TextStyle(fontSize: 10, color: mutedColor),
+                      ),
+                      const Spacer(),
+                      Icon(Icons.auto_awesome_rounded, color: const Color(0xFFFFD700), size: 14),
+                      const SizedBox(width: 3),
+                      Text(
+                        '${level.totalXp} XP',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFFFD700),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.arrow_forward_ios_rounded, size: 14, color: mutedColor),
+          ],
+        ),
       ),
     );
   }
 
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final noteDate = DateTime(date.year, date.month, date.day);
-    final diff = today.difference(noteDate).inDays;
+  void _showLevelDetails(BuildContext context, GoalSaverController controller, PlayerLevel level) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? AppColors.panel : Colors.white;
+    final textColor = isDark ? AppColors.white : AppColors.lightText;
+    final mutedColor = isDark ? AppColors.muted : AppColors.lightMuted;
+    final levels = ['Beginner Saver', 'Regular Saver', 'Dedicated Saver', 'Savings Pro', 'Finance Wizard',
+      'Money Master', 'Wealth Builder', 'Fortune Seeker', 'Prosperity King', 'Legendary Saver'];
 
-    if (diff == 0) return 'Today';
-    if (diff == 1) return 'Yesterday';
-    if (diff < 7) return '$diff days ago';
-    return '${date.month}/${date.day}/${date.year}';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: bgColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Row(
+          children: [
+            const Icon(Icons.auto_awesome_rounded, color: Color(0xFFFFD700), size: 24),
+            const SizedBox(width: 10),
+            Text(
+              'Level ${level.level} — ${level.title}',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: textColor),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // XP progress
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: controller.accentColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        '${level.xp} / ${level.xpToNextLevel} XP',
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: controller.accentColor),
+                      ),
+                      const SizedBox(height: 10),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: LinearProgressIndicator(
+                          minHeight: 10,
+                          value: level.progress,
+                          backgroundColor: AppColors.muted.withValues(alpha: 0.2),
+                          valueColor: AlwaysStoppedAnimation(controller.accentColor),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${(level.progress * 100).round()}% to next level',
+                        style: TextStyle(fontSize: 12, color: mutedColor),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Total XP
+                Row(
+                  children: [
+                    const Icon(Icons.star_rounded, color: Color(0xFFFFD700), size: 18),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Total XP: ${level.totalXp}',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: textColor),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Level progression
+                Text(
+                  'Level Progression',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: textColor),
+                ),
+                const SizedBox(height: 8),
+                ...levels.asMap().entries.map((entry) {
+                  final idx = entry.key + 1;
+                  final title = entry.value;
+                  final isUnlocked = idx <= level.level;
+                  final isCurrent = idx == level.level;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: isUnlocked
+                                ? controller.accentColor.withValues(alpha: 0.2)
+                                : AppColors.muted.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Center(
+                            child: Text(
+                              '$idx',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: isUnlocked ? controller.accentColor : mutedColor,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: isCurrent ? controller.accentColor : (isUnlocked ? textColor : mutedColor),
+                              fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        if (isCurrent)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: controller.accentColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'Current',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: controller.accentColor,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close', style: TextStyle(color: AppColors.lime)),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1410,8 +1512,9 @@ class _NotesSectionState extends State<_NotesSection> {
 class _BadgeItem extends StatelessWidget {
   final AchievementBadge badge;
   final bool unlocked;
+  final int progress;
 
-  const _BadgeItem({required this.badge, required this.unlocked});
+  const _BadgeItem({required this.badge, required this.unlocked, this.progress = 0});
 
   @override
   Widget build(BuildContext context) {
@@ -1448,6 +1551,18 @@ class _BadgeItem extends StatelessWidget {
               color: unlocked ? badge.color : (isDark ? AppColors.muted : AppColors.lightMuted),
             ),
           ),
+          if (!unlocked && badge.requirement > 0 && progress > 0) ...[
+            const SizedBox(height: 2),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(
+                minHeight: 2,
+                value: (progress / badge.requirement).clamp(0.0, 1.0),
+                backgroundColor: AppColors.muted.withValues(alpha: 0.1),
+                valueColor: AlwaysStoppedAnimation(badge.color.withValues(alpha: 0.5)),
+              ),
+            ),
+          ],
         ],
       ),
     );

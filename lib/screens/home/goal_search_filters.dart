@@ -23,7 +23,9 @@ class GoalSearchAndFilters extends StatelessWidget {
 
     return Column(
       children: [
-        Container(
+        Semantics(
+          label: 'Search savings goals',
+          child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: BoxDecoration(
             color: searchBg,
@@ -43,11 +45,18 @@ class GoalSearchAndFilters extends StatelessWidget {
                     hintStyle: TextStyle(color: mutedColor),
                     border: InputBorder.none,
                   ),
+
                 ),
               ),
+              if (controller.searchQuery.isNotEmpty)
+                Pressable(
+                  onTap: () => controller.updateSearch(''),
+                  semanticLabel: 'Clear search',
+                  child: Icon(Icons.close_rounded, color: mutedColor, size: 18),
+                ),
             ],
           ),
-        ),
+        ),),
         const SizedBox(height: 10),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,

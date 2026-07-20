@@ -18,6 +18,7 @@ class SavingsGoal {
     required this.priority,
     this.productName = '',
     this.productDescription = '',
+    this.productPhotoUrl,
     this.notificationsEnabled = false,
     this.notes = '',
     this.dueDate,
@@ -41,6 +42,12 @@ class SavingsGoal {
   final int priority;
   final String productName;
   final String productDescription;
+  /// Optional image path/URL for the product being saved for.
+  /// Supports:
+  /// - Network URLs (http/https)
+  /// - Local file paths (from image_picker)
+  /// - Asset paths ('assets/...')
+  final String? productPhotoUrl;
   final bool notificationsEnabled;
   final String notes;
   final DateTime? dueDate;
@@ -54,8 +61,8 @@ class SavingsGoal {
   /// The explicit savings plan for this goal (null before migration).
   final SavingsPlan? plan;
 
-  /// Calculated progress (0-1) — thin wrapper around calculator.
-  double get progress => SavingsPlanCalculator.calculateProgress(saved, target);
+  /// Calculated progress (0-1) — clamped to ensure it never exceeds 1.0.
+  double get progress => SavingsPlanCalculator.calculateProgress(saved, target).clamp(0.0, 1.0);
 
   /// Days remaining until due date.
   int get daysLeft {
@@ -87,11 +94,31 @@ class SavingsGoal {
   /// Percentage complete as formatted string
   String get progressPercent => '${(progress * 100).round()}%';
 
-  /// Remaining amount to save — uses calculator.
-  double get remaining => SavingsPlanCalculator.calculateRemaining(saved, target);
+  /// Remaining amount to save — uses calculator, clamped to never be negative.
+  double get remaining => SavingsPlanCalculator.calculateRemaining(saved, target).clamp(0.0, target);
 
   /// Money needed (alias for remaining).
   double get moneyNeeded => remaining;
+
+  /// Whether the goal is fully funded (saved >= target).
+  bool get isFunded => saved >= target;
+
+  /// Amount saved beyond the target (zero if not overfunded).
+  double get excessSaved {
+    if (saved <= target) return 0;
+    return saved - target;
+  }
+
+  /// Human-readable funding status.
+  String get fundingStatusLabel {
+    if (completed) {
+      if (excessSaved > 0) {
+        return 'Completed with ₱${excessSaved.toStringAsFixed(0)} excess';
+      }
+      return 'Completed';
+    }
+    return 'In progress';
+  }
 
   /// Savings per day — uses calculator.
   double get savingsPerDay =>
@@ -162,6 +189,8 @@ class SavingsGoal {
     SavingFrequency? frequency,
     String? productName,
     String? productDescription,
+    String? productPhotoUrl,
+    bool clearProductPhotoUrl = false,
     bool? notificationsEnabled,
     String? notes,
     DateTime? dueDate,
@@ -190,6 +219,7 @@ class SavingsGoal {
       priority: priority ?? this.priority,
       productName: productName ?? this.productName,
       productDescription: productDescription ?? this.productDescription,
+      productPhotoUrl: clearProductPhotoUrl ? null : productPhotoUrl ?? this.productPhotoUrl,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
       notes: notes ?? this.notes,
       dueDate: clearDueDate ? null : dueDate ?? this.dueDate,
@@ -223,6 +253,7 @@ class SavingsGoal {
       'priority': priority,
       'productName': productName,
       'productDescription': productDescription,
+      'productPhotoUrl': productPhotoUrl,
       'notificationsEnabled': notificationsEnabled,
       'notes': notes,
       'dueDate': dueDate?.toIso8601String(),
@@ -245,8 +276,8 @@ class SavingsGoal {
       title: map['title'] as String,
       saved: (map['saved'] as num?)?.toDouble() ?? 0,
       target: (map['target'] as num?)?.toDouble() ?? 0,
-      icon: IconData(
-        (map['icon'] as int?) ?? 0xf0a8,
+      icon: _iconFromData(
+        (map['icon'] as int?) ?? Icons.savings_rounded.codePoint,
         fontFamily: (map['iconFontFamily'] as String?) ?? 'MaterialIcons',
         fontPackage: map['iconFontPackage'] as String?,
       ),
@@ -264,6 +295,7 @@ class SavingsGoal {
       priority: (map['priority'] as int?) ?? 5,
       productName: (map['productName'] as String?) ?? '',
       productDescription: (map['productDescription'] as String?) ?? '',
+      productPhotoUrl: map['productPhotoUrl'] as String?,
       notificationsEnabled: (map['notificationsEnabled'] as bool?) ?? false,
       notes: (map['notes'] as String?) ?? '',
       dueDate: map['dueDate'] != null
@@ -314,6 +346,7 @@ class SavingsGoal {
     int priority = 5,
     String productName = '',
     String productDescription = '',
+    String? productPhotoUrl,
     bool notificationsEnabled = false,
   }) {
     final now = DateTime.now();
@@ -335,12 +368,23 @@ class SavingsGoal {
       priority: priority,
       productName: productName,
       productDescription: productDescription,
+      productPhotoUrl: productPhotoUrl,
       notificationsEnabled: notificationsEnabled,
       dueDate: dueDate,
       createdDate: now,
       plan: plan,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SavingsGoal &&
+          runtimeType == other.runtimeType &&
+          id == other.id;
+
+  @override
+  int get hashCode => id.hashCode;
 
   @override
   String toString() =>
@@ -620,7 +664,7 @@ class GoalCategory {
     return GoalCategory.custom(
       name: (map['name'] as String?) ?? 'custom',
       label: (map['label'] as String?) ?? 'Custom',
-      icon: IconData(
+      icon: _iconFromData(
         (map['icon'] as int?) ?? Icons.category_rounded.codePoint,
         fontFamily: (map['iconFontFamily'] as String?) ?? 'MaterialIcons',
         fontPackage: map['iconFontPackage'] as String?,
@@ -660,7 +704,7 @@ enum SavingFrequency {
   const SavingFrequency(this.label, this.days);
 
   String get pluralLabel => days == 1 ? 'day' : 'days';
-  String get intervalLabel => days == 1 ? 'day' : '${days} days';
+  String get intervalLabel => days == 1 ? 'day' : '$days days';
 }
 
 /// Sorting options for goals
@@ -764,7 +808,7 @@ class CalendarEvent {
       notes: map['notes'] as String?,
       date: DateTime.parse(map['date'] as String),
       time: eventTime,
-      icon: IconData(
+      icon: _iconFromData(
         (map['icon'] as int?) ?? Icons.event_rounded.codePoint,
         fontFamily: (map['iconFontFamily'] as String?) ?? 'MaterialIcons',
         fontPackage: map['iconFontPackage'] as String?,
@@ -772,6 +816,12 @@ class CalendarEvent {
       color: Color((map['color'] as int?) ?? 0xFFA8FF3E),
     );
   }
+}
+
+/// Helper to create IconData safely without const warnings.
+IconData _iconFromData(int codePoint, {String? fontFamily, String? fontPackage}) {
+  // ignore: non_const_argument_for_const_parameter
+  return IconData(codePoint, fontFamily: fontFamily, fontPackage: fontPackage);
 }
 
 /// Goal management actionsenum GoalAction {

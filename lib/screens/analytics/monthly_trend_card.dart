@@ -7,9 +7,7 @@ import '../../widgets/common_widgets.dart';
 
 /// Card showing monthly savings data with trend indicators — interactive.
 class MonthlyTrendCard extends StatelessWidget {
-  const MonthlyTrendCard({super.key, required this.range});
-
-  final dynamic range;
+  const MonthlyTrendCard({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +21,8 @@ class MonthlyTrendCard extends StatelessWidget {
     double recentTotal = 0;
     double priorTotal = 0;
     for (int i = 0; i < data.length; i++) {
-      final amt = data[i]['amount'] as double;
+      final raw = (data[i]['amount'] as num?)?.toDouble() ?? 0.0;
+      final amt = raw.isFinite && raw >= 0 ? raw : 0.0;
       if (i >= data.length - 3) {
         recentTotal += amt;
       } else {
@@ -32,10 +31,11 @@ class MonthlyTrendCard extends StatelessWidget {
     }
     final trendUp = recentTotal >= priorTotal;
 
-    // find max for mini spark bars
+    // find max for mini spark bars — with NaN guards
     double maxAmt = 1.0;
     for (final d in data) {
-      final a = d['amount'] as double;
+      final raw = (d['amount'] as num?)?.toDouble() ?? 0.0;
+      final a = raw.isFinite && raw >= 0 ? raw : 0.0;
       if (a > maxAmt) maxAmt = a;
     }
 
@@ -91,8 +91,8 @@ class MonthlyTrendCard extends StatelessWidget {
           ...data.asMap().entries.map((entry) {
             final i = entry.key;
             final item = entry.value;
-            final amount = item['amount'] as double;
-            final month = item['month'] as String;
+            final amount = (item['amount'] as num?)?.toDouble() ?? 0.0;
+            final month = (item['month'] as String?) ?? '';
             final isLast = i == data.length - 1;
             final barFraction = maxAmt == 0 ? 0.0 : (amount / maxAmt);
 

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/goal_model.dart';
@@ -6,6 +7,7 @@ import '../../utils/app_colors.dart';
 import '../../utils/app_text_styles.dart';
 import '../../utils/extensions.dart';
 import '../common_widgets.dart';
+import '../confetti_widget.dart';
 import '../goal_card.dart';
 import 'add_goal_sheet.dart';
 import 'productivity_sheet.dart';
@@ -221,6 +223,12 @@ class GoalDetailsSheet extends StatelessWidget {
                 ),
               ),
             ),
+            // ── Product Photo Hero ────────────────────────────────────────
+            if (currentGoal.productPhotoUrl != null && currentGoal.productPhotoUrl!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: _buildProductPhoto(currentGoal.productPhotoUrl!, currentGoal.color, isDark),
+              ),
             // Header Row
             Row(
               children: [
@@ -317,7 +325,7 @@ class GoalDetailsSheet extends StatelessWidget {
                 Expanded(
                   child: Text(
                     currentGoal.completed
-                        ? 'Goal completed! You saved ${controller.showBalance ? controller.formatMoney(currentGoal.saved) : "•••"}'
+                        ? 'Goal completed!${currentGoal.excessSaved > 0 ? " +${controller.showBalance ? controller.formatMoney(currentGoal.excessSaved) : "•••"} in excess savings (target: ${controller.showBalance ? controller.formatMoney(currentGoal.target) : "•••"})" : " You saved ${controller.showBalance ? controller.formatMoney(currentGoal.saved) : "•••"}"}'
                         : 'Remaining: ${controller.showBalance ? controller.formatMoney(moneyNeeded) : "•••"} of ${controller.showBalance ? controller.formatMoney(currentGoal.target) : "•••"} needed',
                     style: TextStyle(fontSize: 11, color: mutedColor),
                     overflow: TextOverflow.ellipsis,
@@ -459,7 +467,7 @@ class GoalDetailsSheet extends StatelessWidget {
                 ),
               )),
             const SizedBox(height: 10),
-            // Complete / Undo toggle
+            // Complete / Undo toggle with celebration overlay
             SizedBox(
               width: double.infinity,
               child: Pressable(
@@ -467,7 +475,14 @@ class GoalDetailsSheet extends StatelessWidget {
                   if (currentGoal.completed) {
                     controller.undoCompletion(currentGoal);
                   } else {
-                    controller.markCompleted(currentGoal);
+                    // Show celebration + confetti before marking complete
+                    CelebrationOverlay.show(
+                      context,
+                      message: 'You completed "${currentGoal.title}"! 🎉',
+                      onTap: () {
+                        controller.markCompleted(currentGoal);
+                      },
+                    );
                   }
                 },
                 child: Container(
@@ -496,6 +511,58 @@ class GoalDetailsSheet extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Build a product hero photo shown at the top of the details sheet.
+  Widget _buildProductPhoto(String photoUrl, Color categoryColor, bool isDark) {
+    return Container(
+      width: double.infinity,
+      height: 180,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: categoryColor.withValues(alpha: 0.2),
+          width: 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          photoUrl.startsWith('http')
+              ? Image.network(photoUrl, fit: BoxFit.cover,
+                  errorBuilder: (_, e, error) => _buildPhotoFallback(categoryColor))
+              : Image.file(File(photoUrl), fit: BoxFit.cover,
+                  errorBuilder: (_, e, error) => _buildPhotoFallback(categoryColor)),
+          // Gradient overlay for readability
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [
+                    (isDark ? AppColors.panel : Colors.white).withValues(alpha: 0.6),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Fallback when the photo fails to load.
+  Widget _buildPhotoFallback(Color categoryColor) {
+    return Container(
+      color: categoryColor.withValues(alpha: 0.1),
+      child: Center(
+        child: Icon(Icons.image_not_supported_rounded, size: 48, color: categoryColor.withValues(alpha: 0.4)),
       ),
     );
   }

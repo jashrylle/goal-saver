@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import '../logic/savings_plan_calculator.dart';
 import 'goal_model.dart';
 
@@ -48,43 +49,6 @@ class SavingsPlan {
     );
   }
 
-  /// Recalculate the current interval amount based on remaining time and saved amount.
-  SavingsPlan recalculate(double saved) {
-    final remaining = (targetAmount - saved).clamp(0.0, targetAmount);
-    final daysLeft = SavingsPlanCalculator.daysUntil(targetDate);
-    final intervalsLeft =
-        SavingsPlanCalculator.calculateIntervalsLeft(daysLeft, frequency.days);
-
-    final newIntervalAmount = intervalsLeft > 0 && remaining > 0
-        ? SavingsPlanCalculator.calculateIntervalAmount(remaining, intervalsLeft)
-        : currentIntervalAmount;
-
-    final newStatus = intervalsLeft <= 0 && remaining > 0
-        ? PlanStatus.atRisk
-        : remaining <= 0
-            ? PlanStatus.completed
-            : PlanStatus.onTrack;
-
-    return SavingsPlan(
-      startDate: startDate,
-      targetDate: targetDate,
-      frequency: frequency,
-      targetAmount: targetAmount,
-      baseIntervalAmount: baseIntervalAmount,
-      currentIntervalAmount: newIntervalAmount,
-      totalIntervals: totalIntervals,
-      status: newStatus,
-      adjustmentHistory: adjustmentHistory,
-    );
-  }
-
-  /// Add an adjustment record when the interval amount changes significantly.
-  SavingsPlan withAdjustment(PlanAdjustment adjustment) {
-    return copyWith(
-      adjustmentHistory: [...adjustmentHistory, adjustment],
-    );
-  }
-
   SavingsPlan copyWith({
     DateTime? startDate,
     DateTime? targetDate,
@@ -109,59 +73,61 @@ class SavingsPlan {
     );
   }
 
-  Map<String, dynamic> toMap() {
-    return {
-      'startDate': startDate.toIso8601String(),
-      'targetDate': targetDate.toIso8601String(),
-      'frequency': frequency.name,
-      'targetAmount': targetAmount,
-      'baseIntervalAmount': baseIntervalAmount,
-      'currentIntervalAmount': currentIntervalAmount,
-      'totalIntervals': totalIntervals,
-      'status': status.name,
-      'adjustmentHistory': adjustmentHistory.map((a) => a.toMap()).toList(),
-    };
+  /// Recalculate the plan based on current saved amount.
+  SavingsPlan recalculate(double saved) {
+    final remaining = (targetAmount - saved).clamp(0.0, targetAmount);
+    final intervalsLeft = SavingsPlanCalculator.calculateIntervalsLeft(
+      targetDate.difference(DateTime.now()).inDays,
+      frequency.days,
+    );
+    final newIntervalAmount = intervalsLeft > 0
+        ? SavingsPlanCalculator.calculateIntervalAmount(remaining, intervalsLeft)
+        : currentIntervalAmount;
+    return copyWith(currentIntervalAmount: newIntervalAmount);
   }
 
-  factory SavingsPlan.fromMap(Map<String, dynamic> map) {
-    return SavingsPlan(
-      startDate: DateTime.parse(map['startDate'] as String),
-      targetDate: DateTime.parse(map['targetDate'] as String),
-      frequency: SavingFrequency.values.firstWhere(
-        (f) => f.name == (map['frequency'] as String?),
-        orElse: () => SavingFrequency.weekly,
-      ),
-      targetAmount: (map['targetAmount'] as num?)?.toDouble() ?? 0,
-      baseIntervalAmount: (map['baseIntervalAmount'] as num?)?.toDouble() ?? 0,
-      currentIntervalAmount: (map['currentIntervalAmount'] as num?)?.toDouble() ?? 0,
-      totalIntervals: (map['totalIntervals'] as int?) ?? 1,
-      status: PlanStatus.values.firstWhere(
-        (s) => s.name == (map['status'] as String?),
-        orElse: () => PlanStatus.onTrack,
-      ),
-      adjustmentHistory: (map['adjustmentHistory'] as List<dynamic>?)
-              ?.map((a) => PlanAdjustment.fromMap(Map<String, dynamic>.from(a)))
-              .toList() ??
-          [],
+  SavingsPlan withAdjustment(PlanAdjustment adjustment) {
+    return copyWith(
+      currentIntervalAmount: adjustment.newIntervalAmount,
+      adjustmentHistory: [...adjustmentHistory, adjustment],
     );
   }
 
+  Map<String, dynamic> toMap() => {
+    'startDate': startDate.toIso8601String(),
+    'targetDate': targetDate.toIso8601String(),
+    'frequency': frequency.index,
+    'targetAmount': targetAmount,
+    'baseIntervalAmount': baseIntervalAmount,
+    'currentIntervalAmount': currentIntervalAmount,
+    'totalIntervals': totalIntervals,
+    'status': status.index,
+    'adjustmentHistory': adjustmentHistory.map((a) => a.toMap()).toList(),
+  };
+
+  factory SavingsPlan.fromMap(Map<String, dynamic> map) => SavingsPlan(
+    startDate: DateTime.parse(map['startDate'] as String),
+    targetDate: DateTime.parse(map['targetDate'] as String),
+    frequency: SavingFrequency.values[(map['frequency'] as num?)?.toInt() ?? 0],
+    targetAmount: (map['targetAmount'] as num).toDouble(),
+    baseIntervalAmount: (map['baseIntervalAmount'] as num).toDouble(),
+    currentIntervalAmount: (map['currentIntervalAmount'] as num).toDouble(),
+    totalIntervals: (map['totalIntervals'] as num?)?.toInt() ?? 0,
+    status: PlanStatus.values[(map['status'] as num?)?.toInt() ?? 0],
+    adjustmentHistory: (map['adjustmentHistory'] as List<dynamic>?)
+        ?.map((a) => PlanAdjustment.fromMap(a as Map<String, dynamic>))
+        .toList() ?? [],
+  );
+
   @override
   String toString() =>
-      'SavingsPlan(₱$currentIntervalAmount/${frequency.label}, $totalIntervals intervals, $status)';
+      'SavingsPlan(₱$baseIntervalAmount/$frequency → $targetDate, status: $status)';
 }
 
-/// Status of the savings plan.
-enum PlanStatus {
-  onTrack('On Track'),
-  atRisk('Behind Schedule'),
-  completed('Completed');
+/// Status of a savings plan.
+enum PlanStatus { onTrack, atRisk, behind, completed }
 
-  final String label;
-  const PlanStatus(this.label);
-}
-
-/// Record of an adjustment to a savings plan.
+/// Adjustment record for a savings plan.
 class PlanAdjustment {
   final DateTime date;
   final String reason;
@@ -179,29 +145,189 @@ class PlanAdjustment {
     required this.remainingAmount,
   });
 
-  Map<String, dynamic> toMap() {
-    return {
-      'date': date.toIso8601String(),
-      'reason': reason,
-      'oldIntervalAmount': oldIntervalAmount,
-      'newIntervalAmount': newIntervalAmount,
-      'intervalsRemaining': intervalsRemaining,
-      'remainingAmount': remainingAmount,
-    };
-  }
+  Map<String, dynamic> toMap() => {
+    'date': date.toIso8601String(),
+    'reason': reason,
+    'oldIntervalAmount': oldIntervalAmount,
+    'newIntervalAmount': newIntervalAmount,
+    'intervalsRemaining': intervalsRemaining,
+    'remainingAmount': remainingAmount,
+  };
 
-  factory PlanAdjustment.fromMap(Map<String, dynamic> map) {
-    return PlanAdjustment(
-      date: DateTime.parse(map['date'] as String),
-      reason: map['reason'] as String,
-      oldIntervalAmount: (map['oldIntervalAmount'] as num).toDouble(),
-      newIntervalAmount: (map['newIntervalAmount'] as num).toDouble(),
-      intervalsRemaining: map['intervalsRemaining'] as int,
-      remainingAmount: (map['remainingAmount'] as num).toDouble(),
-    );
-  }
+  factory PlanAdjustment.fromMap(Map<String, dynamic> map) => PlanAdjustment(
+    date: DateTime.parse(map['date'] as String),
+    reason: map['reason'] as String,
+    oldIntervalAmount: (map['oldIntervalAmount'] as num).toDouble(),
+    newIntervalAmount: (map['newIntervalAmount'] as num).toDouble(),
+    intervalsRemaining: map['intervalsRemaining'] as int,
+    remainingAmount: (map['remainingAmount'] as num).toDouble(),
+  );
 
   @override
   String toString() =>
       'PlanAdjustment(₱$oldIntervalAmount → ₱$newIntervalAmount: $reason)';
+}
+
+/// Player level for gamification — tracks XP and level progression.
+class PlayerLevel {
+  final int level;
+  final int xp;
+  final int xpToNextLevel;
+  final int totalXp;
+
+  const PlayerLevel({
+    this.level = 1,
+    this.xp = 0,
+    this.xpToNextLevel = 100,
+    this.totalXp = 0,
+  });
+
+  double get progress => xpToNextLevel > 0 ? (xp / xpToNextLevel).clamp(0.0, 1.0) : 1.0;
+  String get title => _levelTitles[level.clamp(1, _levelTitles.length - 1)];
+
+  static const List<String> _levelTitles = [
+    'Beginner Saver',
+    'Regular Saver',
+    'Dedicated Saver',
+    'Savings Pro',
+    'Finance Wizard',
+    'Money Master',
+    'Wealth Builder',
+    'Fortune Seeker',
+    'Prosperity King',
+    'Legendary Saver',
+  ];
+
+  PlayerLevel copyWith({int? level, int? xp, int? xpToNextLevel, int? totalXp}) {
+    return PlayerLevel(
+      level: level ?? this.level,
+      xp: xp ?? this.xp,
+      xpToNextLevel: xpToNextLevel ?? this.xpToNextLevel,
+      totalXp: totalXp ?? this.totalXp,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'level': level,
+    'xp': xp,
+    'xpToNextLevel': xpToNextLevel,
+    'totalXp': totalXp,
+  };
+
+  factory PlayerLevel.fromMap(Map<String, dynamic> map) => PlayerLevel(
+    level: (map['level'] as num?)?.toInt() ?? 1,
+    xp: (map['xp'] as num?)?.toInt() ?? 0,
+    xpToNextLevel: (map['xpToNextLevel'] as num?)?.toInt() ?? 100,
+    totalXp: (map['totalXp'] as num?)?.toInt() ?? 0,
+  );
+
+  @override
+  String toString() => 'PlayerLevel(level: $level, xp: $xp/$xpToNextLevel, totalXp: $totalXp)';
+}
+
+/// Flags for selective reset of user data.
+class ResetFlags {
+  bool goals = false;
+  bool history = false;
+  bool budgetAllocations = false;
+  bool savingsForecasts = false;
+  bool reports = false;
+  bool analytics = false;
+  bool healthScore = false;
+  bool recentActivity = false;
+  bool goalMilestones = false;
+  bool goalPredictions = false;
+  bool achievements = false;
+  bool xpLevel = false;
+  bool streak = false;
+  bool milestoneCelebrations = false;
+  bool dailyMotivation = false;
+  bool notes = false;
+  bool calendarEvents = false;
+  bool profileData = false;
+  bool coachInsights = false;
+  bool categories = false;
+  bool predefinedCategories = false;
+  bool reminders = false;
+  bool preferences = false;  bool productImages = false;
+  bool dashboardLayout = false;
+
+  bool get anySelected =>
+      goals || history || budgetAllocations || savingsForecasts || reports ||
+      analytics || healthScore || recentActivity ||
+      goalMilestones || goalPredictions ||
+      achievements || xpLevel || streak || milestoneCelebrations || dailyMotivation ||
+      notes || calendarEvents || profileData || coachInsights ||
+      categories || predefinedCategories || reminders || preferences ||
+      productImages || dashboardLayout;
+
+  void selectAll() {
+    goals = history = budgetAllocations = savingsForecasts = reports =
+        analytics = healthScore = recentActivity =
+        goalMilestones = goalPredictions =
+    achievements = xpLevel = streak = milestoneCelebrations = dailyMotivation =
+    notes = calendarEvents = profileData = coachInsights =
+    categories = predefinedCategories = reminders = preferences =
+    productImages = dashboardLayout = true;
+  }
+
+  void deselectAll() {
+    goals = history = budgetAllocations = savingsForecasts = reports =
+        analytics = healthScore = recentActivity =
+        goalMilestones = goalPredictions =
+    achievements = xpLevel = streak = milestoneCelebrations = dailyMotivation =
+    notes = calendarEvents = profileData = coachInsights =
+    categories = predefinedCategories = reminders = preferences =
+    productImages = dashboardLayout = false;
+  }
+}
+
+/// Financial health score computed from user's savings data.
+class FinancialHealthScore {
+  final double consistency;
+  final double completionRate;
+  final double savingsRate;
+  final double progressRate;
+  final double discipline;
+
+  const FinancialHealthScore({
+    required this.consistency,
+    required this.completionRate,
+    required this.savingsRate,
+    required this.progressRate,
+    required this.discipline,
+  });
+
+  int get roundedScore {
+    final avg = (consistency + completionRate + savingsRate + progressRate + discipline) / 5;
+    return (avg * 100).round();
+  }
+
+  String get grade {
+    final s = roundedScore;
+    if (s >= 90) return 'A+';
+    if (s >= 80) return 'A';
+    if (s >= 70) return 'B+';
+    if (s >= 60) return 'B';
+    if (s >= 50) return 'C+';
+    if (s >= 40) return 'C';
+    if (s >= 30) return 'D';
+    return 'F';
+  }
+
+  Color get gradeColor {
+    final s = roundedScore;
+    if (s >= 80) return const Color(0xFF00E676);
+    if (s >= 60) return const Color(0xFFA8FF3E);
+    if (s >= 40) return const Color(0xFFFFA726);
+    return const Color(0xFFFF6B6B);
+  }
+
+  IconData get gradeIcon {
+    final s = roundedScore;
+    if (s >= 80) return Icons.emoji_events_rounded;
+    if (s >= 60) return Icons.thumb_up_rounded;
+    if (s >= 40) return Icons.trending_up_rounded;
+    return Icons.fitness_center_rounded;
+  }
 }

@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../models/goal_model.dart';
 import '../../models/savings_plan_model.dart';
@@ -39,9 +41,12 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   GoalCategory _category = GoalCategory.technology;
+  String? _productPhotoUrl;
+  String? _titleError;
 
   // Step 2 — Price
   final _priceController = TextEditingController();
+  String? _priceError;
 
   // Step 3 — Timeline
   SavingFrequency _frequency = SavingFrequency.weekly;
@@ -52,6 +57,7 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
 
   // Computed plan preview (live)
   bool _isEdit = false;
+  bool _isSubmitting = false;
 
   static const _durationOptions = [
     '5 weeks', '6 weeks', '8 weeks', '10 weeks',
@@ -94,6 +100,7 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
       _frequency = goal.frequency;
       _customDate = goal.dueDate ?? DateTime.now().add(const Duration(days: 90));
       _pickedCustomDate = goal.dueDate;
+      _productPhotoUrl = goal.productPhotoUrl;
       _useDuration = goal.dueDate == null;
     }
   }
@@ -110,10 +117,10 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
   bool get _canProceedFromStep {
     switch (_currentStep) {
       case 0:
-        return _titleController.text.trim().isNotEmpty;
+        return _titleController.text.trim().isNotEmpty && _titleError == null;
       case 1:
         final price = double.tryParse(_priceController.text) ?? 0;
-        return price > 0;
+        return price > 0 && _priceError == null;
       case 2:
         return !_useDuration || _effectiveDueDate.isAfter(DateTime.now());
       case 3:
@@ -121,6 +128,31 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
       default:
         return false;
     }
+  }
+
+  bool _isDuplicateTitle(String title, GoalSaverController controller) {
+    if (_isEdit && widget.existingGoal != null) return false;
+    return controller.allActiveGoals
+        .any((g) => g.title.toLowerCase().trim() == title.toLowerCase().trim());
+  }
+
+  String? _validateTitle(String value, GoalSaverController controller) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return 'Product name is required';
+    if (trimmed.length < 2) return 'Product name is too short';
+    if (trimmed.length > 100) return 'Product name is too long';
+    if (_isDuplicateTitle(trimmed, controller)) return 'This product already exists in your goals';
+    return null;
+  }
+
+  String? _validatePrice(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return 'Price is required';
+    final price = double.tryParse(trimmed);
+    if (price == null) return 'Please enter a valid number';
+    if (price <= 0) return 'Price must be greater than zero';
+    if (price > 999999999) return 'Price is too large';
+    return null;
   }
 
   void _nextStep() {
@@ -141,63 +173,111 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
     }
   }
 
-  void _submit(GoalSaverController controller) {
-    final price = double.tryParse(_priceController.text) ?? 0;
+  Future<void> _submit(GoalSaverController controller) async {
+    // Prevent double-tap: if already submitting, ignore
+    if (_isSubmitting) return;
+    
     final title = _titleController.text.trim();
+    final price = double.tryParse(_priceController.text) ?? 0;
+    
+    // Validate all fields before submitting
+    final titleErr = _validateTitle(title, controller);
+    final priceErr = _validatePrice(_priceController.text);
+    if (titleErr != null || priceErr != null) {
+      setState(() {
+        _titleError = titleErr;
+        _priceError = priceErr;
+      });
+      return;
+    }
+    
     if (title.isEmpty || price <= 0) return;
 
-    final dueDate = _effectiveDueDate;
+    // Mark as submitting immediately to prevent double-tap
+    _isSubmitting = true;
 
-    if (_isEdit && widget.existingGoal != null) {
-      final updated = widget.existingGoal!.copyWith(
-        title: title,
-        target: price,
-        category: _category,
-        frequency: _frequency,
-        icon: _category.icon,
-        color: _category.color,
-        dueDate: dueDate,
-        productName: title,
-        productDescription: _descriptionController.text.trim(),
-        plan: SavingsPlan.create(
-          startDate: DateTime.now(),
-          targetDate: dueDate,
+    try {
+      final dueDate = _effectiveDueDate;
+
+      // ── Persist to Hive FIRST before any navigation ────────────────
+      // CRITICAL: Both createGoalWithPlan and updateGoal are async
+      // operations that write to Hive. We MUST await them before popping
+      // the sheet, otherwise:
+      //   1. The goal may not be fully persisted before the sheet closes
+      //   2. Any write error becomes an unhandled future exception
+      if (_isEdit && widget.existingGoal != null) {
+        final updated = widget.existingGoal!.copyWith(
+          title: title,
+          target: price,
+          category: _category,
           frequency: _frequency,
-          targetAmount: price,
+          icon: _category.icon,
+          color: _category.color,
+          dueDate: dueDate,
+          productName: title,
+          productDescription: _descriptionController.text.trim(),
+          productPhotoUrl: _productPhotoUrl,
+          plan: SavingsPlan.create(
+            startDate: DateTime.now(),
+            targetDate: dueDate,
+            frequency: _frequency,
+            targetAmount: price,
+          ),
+        );
+        await controller.updateGoal(updated);
+      } else {
+        final goal = SavingsGoal.withPlan(
+          id: DateTime.now().microsecondsSinceEpoch.toString(),
+          title: title,
+          target: price,
+          icon: _category.icon,
+          color: _category.color,
+          category: _category,
+          frequency: _frequency,
+          dueDate: dueDate,
+          priority: 5,
+          productName: title,
+          productDescription: _descriptionController.text.trim(),
+          productPhotoUrl: _productPhotoUrl,
+        );
+        await controller.createGoalWithPlan(goal);
+      }
+
+      // ── All data is persisted — safe to pop now ────────────────────
+      // After Navigator.pop, this widget is disposed. Capture the
+      // ScaffoldMessenger BEFORE popping since the context becomes
+      // invalid after the widget is removed from the tree.
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      final snackMessage = _isEdit
+          ? 'Product "$title" updated successfully!'
+          : 'Product "$title" added successfully!';
+
+      Navigator.pop(context);
+
+      // ScaffoldMessenger is an InheritedWidget that survives pop
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(snackMessage),
+          backgroundColor: AppColors.lime,
+          behavior: SnackBarBehavior.floating,
         ),
       );
-      controller.updateGoal(updated);
-    } else {
-      final goal = SavingsGoal.withPlan(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        title: title,
-        target: price,
-        icon: _category.icon,
-        color: _category.color,
-        category: _category,
-        frequency: _frequency,
-        dueDate: dueDate,
-        priority: 5,
-        productName: title,
-        productDescription: _descriptionController.text.trim(),
-      );
-      controller.createGoalWithPlan(goal);
+    } catch (e, stackTrace) {
+      debugPrint('Add/Edit goal error: $e\n$stackTrace');
+      // Reset submitting flag so user can retry (only if still mounted)
+      _isSubmitting = false;
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content: Text('Failed to save product: $e'),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
-
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    final snackMessage = _isEdit
-        ? 'Product "$title" updated successfully!'
-        : 'Product "$title" added successfully!';
-
-    Navigator.pop(context);
-
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Text(snackMessage),
-        backgroundColor: AppColors.lime,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   @override
@@ -209,8 +289,10 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
     final mutedColor = isDark ? AppColors.muted : AppColors.lightMuted;
     final availableCategories = controller.allCategories;
 
+    // Validate selected category is still in the available list
+    // (handles deleted/reset categories that could cause DropdownButton assertion errors)
     if (!availableCategories.any((c) => c.name == _category.name)) {
-      _category = availableCategories.first;
+      _category = availableCategories.isNotEmpty ? availableCategories.first : GoalCategory.technology;
     }
 
     return Container(
@@ -283,7 +365,7 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
               physics: const NeverScrollableScrollPhysics(),
               onPageChanged: (i) => setState(() => _currentStep = i),
               children: [
-                _buildStep1(isDark, textColor, mutedColor, availableCategories),
+                _buildStep1(isDark, textColor, mutedColor, availableCategories, controller),
                 _buildStep2(isDark, textColor, mutedColor, controller),
                 _buildStep3(isDark, textColor, mutedColor),
                 _buildStep4(isDark, textColor, mutedColor, controller),
@@ -309,11 +391,96 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
 
   // ── Step 1: Product ──────────────────────────────────────────────────────
 
-  Widget _buildStep1(bool isDark, Color textColor, Color mutedColor, List<GoalCategory> categories) {
+  Widget _buildStep1(bool isDark, Color textColor, Color mutedColor, List<GoalCategory> categories, GoalSaverController controller) {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Column(
         children: [
+          // ── Product photo picker ──────────────────────────────────────
+          InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: _pickProductImage,
+            child: Container(
+              width: double.infinity,
+              height: 120,
+              decoration: BoxDecoration(
+                color: isDark
+                    ? AppColors.muted.withValues(alpha: 0.1)
+                    : AppColors.lightMuted.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: _productPhotoUrl != null
+                      ? AppColors.lime.withValues(alpha: 0.3)
+                      : (isDark
+                          ? const Color(0xFFFFFFFF).withValues(alpha: 0.1)
+                          : const Color(0xFF000000).withValues(alpha: 0.1)),
+                  width: 1.5,
+                ),
+              ),
+              child: _productPhotoUrl != null
+                  ? Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(14.5),
+                          child: _productPhotoUrl!.startsWith('http')
+                              ? Image.network(
+                                  _productPhotoUrl!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, e, error) => _buildPhotoPlaceholder(textColor, mutedColor),
+                                )
+                              : Image.file(
+                                  File(_productPhotoUrl!),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, e, error) => _buildPhotoPlaceholder(textColor, mutedColor),
+                                ),
+                        ),
+                        // ✕ remove button
+                        Positioned(
+                          top: 6,
+                          right: 6,
+                          child: GestureDetector(
+                            onTap: () => setState(() => _productPhotoUrl = null),
+                            child: Container(
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.6),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                            ),
+                          ),
+                        ),
+                        // Change photo label
+                        Positioned(
+                          bottom: 6,
+                          left: 0,
+                          right: 0,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.6),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.camera_alt_rounded, color: Colors.white, size: 14),
+                                  SizedBox(width: 4),
+                                  Text('Change Photo', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : _buildPhotoPlaceholder(textColor, mutedColor),
+            ),
+          ),
+          const SizedBox(height: 14),
           TextFormField(
             controller: _titleController,
             style: TextStyle(color: textColor),
@@ -321,8 +488,15 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
               'Product name',
               Icons.shopping_bag_rounded,
               context: context,
+            ).copyWith(
+              errorText: _titleError,
+              errorStyle: TextStyle(color: AppColors.error, fontSize: 12),
             ),
-            onChanged: (_) => setState(() {}),
+            onChanged: (value) {
+              setState(() {
+                _titleError = _validateTitle(value, controller);
+              });
+            },
           ),
           const SizedBox(height: 12),
           TextFormField(
@@ -337,7 +511,7 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<GoalCategory>(
-            value: categories.firstWhere(
+            initialValue: categories.firstWhere(
               (c) => c.name == _category.name,
               orElse: () => categories.first,
             ),
@@ -367,6 +541,48 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
     );
   }
 
+  /// Placeholder shown when no photo is selected.
+  Widget _buildPhotoPlaceholder(Color textColor, Color mutedColor) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.image_outlined, size: 32, color: mutedColor.withValues(alpha: 0.5)),
+          const SizedBox(height: 6),
+          Text(
+            'Tap to add product photo',
+            style: TextStyle(color: mutedColor, fontSize: 12, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Helps you visualize your goal',
+            style: TextStyle(color: mutedColor.withValues(alpha: 0.6), fontSize: 10),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Pick an image from the gallery.
+  Future<void> _pickProductImage() async {
+    final picker = ImagePicker();
+    try {
+      final pickedFile = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 80,
+      );
+      if (pickedFile != null && mounted) {
+        setState(() {
+          _productPhotoUrl = pickedFile.path;
+        });
+      }
+    } catch (_) {
+      // Gallery may not be available on all platforms
+    }
+  }
+
   // ── Step 2: Price ────────────────────────────────────────────────────────
 
   Widget _buildStep2(bool isDark, Color textColor, Color mutedColor, GoalSaverController controller) {
@@ -386,9 +602,16 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
                 controller.currencySymbol,
                 style: TextStyle(color: textColor, fontSize: 22, fontWeight: FontWeight.w800),
               ),
+            ).copyWith(
+              errorText: _priceError,
+              errorStyle: TextStyle(color: AppColors.error, fontSize: 12),
             ),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            onChanged: (_) => setState(() {}),
+            onChanged: (value) {
+              setState(() {
+                _priceError = _validatePrice(value);
+              });
+            },
           ),
           const SizedBox(height: 16),
           Wrap(
@@ -448,7 +671,7 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
 
           if (_useDuration) ...[
             DropdownButtonFormField<String>(
-              value: _durationOption,
+              initialValue: _durationOption,
               dropdownColor: isDark ? AppColors.panel : Colors.white,
               style: TextStyle(color: textColor, fontSize: 14),
               decoration: goalInputDecoration(
@@ -742,7 +965,7 @@ class _AddGoalSheetState extends State<AddGoalSheet> {
           child: FilledButton(
             onPressed: _currentStep < _totalSteps - 1
                 ? (_canProceedFromStep ? _nextStep : null)
-                : _canProceedFromStep
+                : _canProceedFromStep && !_isSubmitting
                     ? () => _submit(controller)
                     : null,
             style: FilledButton.styleFrom(

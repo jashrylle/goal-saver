@@ -7,9 +7,7 @@ import '../../widgets/common_widgets.dart';
 
 /// Card showing per-day savings bars for the current week — interactive bar chart.
 class WeeklyContributionCard extends StatelessWidget {
-  const WeeklyContributionCard({super.key, required this.range});
-
-  final dynamic range;
+  const WeeklyContributionCard({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -18,17 +16,15 @@ class WeeklyContributionCard extends StatelessWidget {
     final textColor = isDark ? AppColors.white : AppColors.lightText;
     final data = controller.weeklyContributions;
 
-    // Find max for scaling
+    // Find max for scaling — with NaN/Infinity guards
     double maxVal = 1.0;
+    double total = 0.0;
     for (final item in data) {
-      final val = item['value'] as double;
+      final raw = (item['value'] as num?)?.toDouble() ?? 0.0;
+      final val = raw.isFinite && raw >= 0 ? raw : 0.0;
+      total += val;
       if (val > maxVal) maxVal = val;
     }
-
-    final total = data.fold<double>(
-      0.0,
-      (sum, item) => sum + (item['value'] as double),
-    );
 
     return GlassCard(
       padding: const EdgeInsets.all(16),
@@ -69,20 +65,21 @@ class WeeklyContributionCard extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: data.map((item) {
-                final label = item['label'] as String;
-                final value = item['value'] as double;
+                final label = (item['label'] as String?) ?? '';
+                final value = (item['value'] as num?)?.toDouble() ?? 0.0;
                 final barFraction = maxVal == 0 ? 0.0 : (value / maxVal);
                 final isToday = _isToday(label);
 
-                return Expanded(
+                final safeValue = value.isFinite && value >= 0 ? value : 0.0;
+              return Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 3),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        if (value > 0 && controller.showBalance)
+                        if (safeValue > 0 && controller.showBalance)
                           Text(
-                            _compactMoney(value),
+                            _compactMoney(safeValue),
                             style: AppText.caption.copyWith(
                               fontSize: 9,
                               color: AppColors.lime,
@@ -94,17 +91,19 @@ class WeeklyContributionCard extends StatelessWidget {
                         Flexible(
                           child: GestureDetector(
                             onTap: () {
-                              final dayTotal = value;
-                              final dayName = label;
-                              _showDayDetail(context, controller, dayName, dayTotal);
+                              _showDayDetail(context, controller, label, safeValue);
                             },
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 200),
                               curve: Curves.easeOutQuad,
-                              transform: Matrix4.identity()..scale(1.0, barFraction.clamp(0.05, 1.0)),
+                              transform: Matrix4.identity()
+                                ..setEntry(0, 0, 1.0)
+                                ..setEntry(1, 1, barFraction.clamp(0.01, 1.0)),
                               alignment: Alignment.bottomCenter,
                               child: Transform(
-                                transform: Matrix4.identity()..scale(1.0, 1.0 / barFraction.clamp(0.05, 1.0)),
+                                transform: Matrix4.identity()
+                                  ..setEntry(0, 0, 1.0)
+                                  ..setEntry(1, 1, (1.0 / barFraction.clamp(0.01, 1.0))),
                                 child: Container(
                                   decoration: BoxDecoration(
                                     borderRadius: const BorderRadius.vertical(
@@ -112,7 +111,7 @@ class WeeklyContributionCard extends StatelessWidget {
                                     ),
                                     color: isToday
                                         ? AppColors.lime
-                                        : value > 0
+                                        : safeValue > 0
                                             ? AppColors.lime.withValues(alpha: 0.5)
                                             : AppColors.muted.withValues(alpha: 0.2),
                                   ),

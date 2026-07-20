@@ -67,6 +67,26 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               padding: EdgeInsets.fromLTRB(metrics.pagePadding, 18, metrics.pagePadding, 24),
               child: Column(
                 children: [
+                  Row(
+                    children: [
+                      const Spacer(),
+                      if (_page < pages.length - 1)
+                        TextButton(
+                          onPressed: widget.onComplete,
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.muted,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          ),
+                          child: const Text(
+                            'Skip',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                          ),
+                        )
+                      else
+                        const SizedBox.shrink(),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
                   _AnimatedProgressDots(count: pages.length, index: _page),
                   const SizedBox(height: 18),
                   Expanded(

@@ -61,6 +61,7 @@ class _CategoryManagementScreenState extends State<CategoryManagementScreen> {
                                 padding: const EdgeInsets.only(bottom: 10),
                                 child: GlassCard(
                                   child: ListTile(
+                                    tileColor: Colors.transparent,
                                     leading: Container(
                                       width: 48,
                                       height: 48,
@@ -152,25 +153,19 @@ class _CategoryManagementScreenState extends State<CategoryManagementScreen> {
                           ),
                           const SizedBox(height: 12),
                           if (controller.customCategories.isEmpty)
-                            GlassCard(
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
-                                child: Center(
-                                  child: Text(
-                                    'No custom categories yet. Tap "Add New" to create one!',
-                                    style: AppText.body.copyWith(
-                                      color: mutedColor,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
-                              ),
+                            EmptyState(
+                              icon: Icons.category_rounded,
+                              title: 'No custom categories',
+                              subtitle: 'Tap "Add New" above to create your\nown custom category with a unique icon and color',
+                              actionLabel: 'Add New',
+                              onAction: () => _showAddCategoryDialog(context),
                             )
                           else
                             ...controller.customCategories.map((category) => Padding(
                                   padding: const EdgeInsets.only(bottom: 10),
                                   child: GlassCard(
                                     child: ListTile(
+                                      tileColor: Colors.transparent,
                                       leading: Container(
                                         width: 48,
                                         height: 48,
@@ -543,16 +538,10 @@ class _CategoryManagementScreenState extends State<CategoryManagementScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? AppColors.white : AppColors.lightText;
     
-    // Check if already exists as custom
-    final alreadyExists = ctrl.customCategories.any((c) => c.name == category.name);
-    if (alreadyExists) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('"${category.label}" is already unlocked and editable!'),
-          backgroundColor: AppColors.lime,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    // Check if already unlocked
+    if (ctrl.isPredefinedUnlocked(category.name)) {
+      // Already unlocked — show edit dialog directly
+      _showEditPredefinedCategoryDialog(context, category);
       return;
     }
 
@@ -561,11 +550,13 @@ class _CategoryManagementScreenState extends State<CategoryManagementScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: bgColor,
         title: Text(
-          'Unlock "${category.label}"?',
+          'Edit "${category.label}"?',
           style: AppText.titleMedium.copyWith(color: textColor),
         ),
         content: Text(
-          'Unlocking this category will add it to custom categories so you can edit its name, icon, and color.',
+          'Unlock this predefined category to customize its name, icon, and color. '
+          'It stays in the predefined list and keeps its identity — no duplicate is created. '
+          'Reset Categories will restore it to its default state.',
           style: AppText.body.copyWith(color: textColor),
         ),
         actions: [
@@ -575,28 +566,153 @@ class _CategoryManagementScreenState extends State<CategoryManagementScreen> {
           ),
           FilledButton(
             onPressed: () async {
-              await ctrl.addCustomCategory(GoalCategory.custom(
-                name: category.name,
-                label: category.label,
-                icon: category.icon,
-                color: category.color,
-                description: category.description,
-              ));
+              await ctrl.unlockPredefinedCategory(category.name);
               if (ctx.mounted) Navigator.pop(ctx);
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('"${category.label}" unlocked and ready to edit!'),
-                    backgroundColor: AppColors.lime,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                _showEditPredefinedCategoryDialog(context, category);
               }
             },
             style: FilledButton.styleFrom(backgroundColor: AppColors.lime),
-            child: Text('Unlock', style: AppText.body.copyWith(color: AppColors.ink)),
+            child: Text('Unlock & Edit', style: AppText.body.copyWith(color: AppColors.ink)),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Edit a predefined category IN PLACE — no duplication to custom categories.
+  void _showEditPredefinedCategoryDialog(BuildContext context, GoalCategory category) {
+    final ctrl = context.read<GoalSaverController>();
+    final nameController = TextEditingController(text: category.label);
+    final descriptionController = TextEditingController(text: category.description);
+    IconData selectedIcon = category.icon;
+    Color selectedColor = category.color;
+    final bgColor = _dialogBgColor(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? AppColors.white : AppColors.lightText;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: bgColor,
+          title: Text(
+            'Edit ${category.label}',
+            style: AppText.titleMedium.copyWith(color: textColor),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Editing in place — predefined category',
+                  style: TextStyle(fontSize: 11, color: AppColors.lime, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  style: TextStyle(color: textColor),
+                  decoration: goalInputDecoration('Category Name', Icons.text_fields_rounded, context: ctx),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: descriptionController,
+                  style: TextStyle(color: textColor),
+                  decoration: goalInputDecoration('Description', Icons.description_rounded, context: ctx),
+                ),
+                const SizedBox(height: 16),
+                Text('Select Icon', style: AppText.caption.copyWith(color: AppColors.muted)),
+                const SizedBox(height: 8),
+                Wrap(spacing: 12, runSpacing: 12, children: [
+                  Icons.category_rounded, Icons.star_rounded, Icons.favorite_rounded,
+                  Icons.work_rounded, Icons.home_rounded, Icons.shopping_bag_rounded,
+                  Icons.sports_rounded, Icons.music_note_rounded,
+                ].map((icon) {
+                  final isSelected = selectedIcon == icon;
+                  return Pressable(
+                    onTap: () => setDialogState(() => selectedIcon = icon),
+                    child: Container(
+                      width: 48, height: 48,
+                      decoration: BoxDecoration(
+                        color: isSelected ? AppColors.lime.withValues(alpha: 0.2) : (isDark ? AppColors.ink.withValues(alpha: 0.3) : const Color(0xFF000000).withValues(alpha: 0.05)),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: isSelected ? AppColors.lime : AppColors.muted.withValues(alpha: 0.3), width: isSelected ? 2 : 1),
+                      ),
+                      child: Icon(icon, color: isSelected ? AppColors.lime : AppColors.muted),
+                    ),
+                  );
+                }).toList()),
+                const SizedBox(height: 16),
+                Text('Select Color', style: AppText.caption.copyWith(color: AppColors.muted)),
+                const SizedBox(height: 8),
+                Wrap(spacing: 12, runSpacing: 8, children: [
+                  AppColors.lime, const Color(0xFF00D9FF), const Color(0xFFFF6B9D),
+                  const Color(0xFFFFD93D), const Color(0xFF9D4EDD), const Color(0xFF52B788),
+                  const Color(0xFFFFB703), const Color(0xFF4CC9F0),
+                ].map((color) {
+                  final isSelected = selectedColor == color;
+                  return Pressable(
+                    onTap: () => setDialogState(() => selectedColor = color),
+                    child: Container(
+                      width: 40, height: 40,
+                      decoration: BoxDecoration(
+                        color: color, shape: BoxShape.circle,
+                        border: Border.all(color: isSelected ? AppColors.white : Colors.transparent, width: 3),
+                        boxShadow: isSelected ? [BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 8)] : null,
+                      ),
+                    ),
+                  );
+                }).toList()),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Cancel', style: AppText.body.copyWith(color: AppColors.muted)),
+            ),
+            TextButton(
+              onPressed: () async {
+                await ctrl.lockPredefinedCategory(category.name);
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('"${category.label}" restored to default'),
+                      backgroundColor: AppColors.muted,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
+              child: Text('Restore Default', style: TextStyle(color: AppColors.muted)),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final name = nameController.text.trim();
+                if (name.isEmpty) return;
+                final updated = GoalCategory.custom(
+                  name: category.name, // Keep original name for identity
+                  label: name,
+                  icon: selectedIcon,
+                  color: selectedColor,
+                  description: descriptionController.text.trim(),
+                );
+                await ctrl.updatePredefinedCategory(category, updated);
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('"${updated.label}" updated!'),
+                      backgroundColor: AppColors.lime,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
+              style: FilledButton.styleFrom(backgroundColor: AppColors.lime),
+              child: Text('Save', style: AppText.body.copyWith(color: AppColors.ink)),
+            ),
+          ],
+        ),
       ),
     );
   }

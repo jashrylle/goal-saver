@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../state/goal_saver_controller.dart';
 import '../../utils/app_colors.dart';
 import '../../widgets/common_widgets.dart';
 import '../../widgets/sheets/add_goal_sheet.dart';
@@ -10,6 +12,7 @@ class QuickActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accentColor = context.watch<GoalSaverController>().accentColor;
     return Row(
       children: [
         Expanded(
@@ -18,14 +21,14 @@ class QuickActions extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 14),
               decoration: BoxDecoration(
-                color: AppColors.lime,
+                color: accentColor,
                 borderRadius: BorderRadius.circular(18),
               ),
-              child: const Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.add_rounded, color: AppColors.ink),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Text('Add Product', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w800)),
                 ],
               ),
@@ -43,14 +46,14 @@ class QuickActions extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 14),
               decoration: BoxDecoration(
-                color: AppColors.lime,
+                color: accentColor,
                 borderRadius: BorderRadius.circular(18),
               ),
               child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.payments_rounded, color: AppColors.ink),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8),
                   Text('Add Savings', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w800)),
                 ],
               ),

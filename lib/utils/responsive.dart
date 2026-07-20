@@ -25,7 +25,6 @@ class ResponsiveMetrics {
     final mediaQuery = MediaQuery.of(context);
     final size = mediaQuery.size;
     final width = size.width;
-    final height = size.height;
     final isLandscape =
         mediaQuery.orientation == Orientation.landscape;
     final isTablet = width >= 600;
